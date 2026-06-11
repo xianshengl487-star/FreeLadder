@@ -1,0 +1,38 @@
+# FreeLadder 配置文件
+# 复制此文件为 config.yaml 并根据需要修改
+
+app:
+  name: FreeLadder
+  data_dir: ""          # 留空则使用默认数据目录
+  export_dir: ""        # 留空则使用默认导出目录
+  log_level: INFO       # DEBUG, INFO, WARNING, ERROR
+
+scraper:
+  sources: []           # 订阅源 URL 列表，示例:
+                        #   - https://example.com/sub1.txt
+                        #   - https://example.com/sub2.yaml
+  request_timeout: 15   # 请求超时（秒）
+  max_workers: 20       # 并发下载线程数
+
+tester:
+  test_url: "https://www.gstatic.com/generate_204"
+  timeout: 8            # 测试超时（秒）
+  max_workers: 20       # 并发测试线程数
+  prefer_mihomo: true   # 优先使用 Mihomo 测试高级协议
+  tcp_fallback: true    # Mihomo 不可用时降级为 TCP 测试
+
+mihomo:
+  binary_path: ""       # Mihomo 可执行文件路径，留空自动查找
+  external_controller_host: "127.0.0.1"
+  external_controller_port: 0    # 0 = 自动分配空闲端口
+  mixed_port: 0                 # 0 = 自动分配空闲端口
+  secret: ""                     # 留空自动生成
+  startup_timeout: 10            # 启动等待超时（秒）
+
+web:
+  host: "127.0.0.1"
+  port: 8765
+
+gui:
+  auto_update: false
+  update_interval_minutes: 120

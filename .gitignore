@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Distribution
+dist/
+build/
+*.egg-info/
+*.spec
+
+# FreeLadder runtime data
+data/*.db
+data/*.db-wal
+data/*.db-shm
+exports/*.yaml
+exports/*.txt
+
+# Config (user-specific)
+config.yaml
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
