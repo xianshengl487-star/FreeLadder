@@ -3,13 +3,14 @@
 
 提供本地 HTTP API 供外部工具操作浏览器。
 默认只监听 127.0.0.1，支持 token 鉴权。
+所有路由统一使用 /browser 前缀。
 """
 
-import asyncio
 import secrets
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Header
+from fastapi.responses import Response
 from loguru import logger
 
 from freeladder.core.config import get_config
@@ -18,12 +19,11 @@ from .browser_manager import BrowserSession
 from .schemas import (
     BrowserStartRequest,
     BrowserStartResponse,
+    BrowserStopRequest,
     BrowserGotoRequest,
     BrowserClickRequest,
     BrowserFillRequest,
     BrowserEvaluateRequest,
-    BrowserStatusResponse,
-    BrowserErrorResponse,
     BrowserMessageResponse,
 )
 
@@ -53,18 +53,28 @@ def _verify_token(authorization: Optional[str] = Header(None)) -> None:
 
 def create_browser_api() -> FastAPI:
     """创建浏览器控制 API 应用"""
+    cfg = get_config()
     app = FastAPI(
         title="FreeLadder Browser Control API",
         description="本地浏览器控制接口",
-        docs_url="/docs" if get_config().browser.allow_external_control else None,
+        docs_url="/docs" if cfg.browser.allow_external_control else None,
     )
+
+    router = APIRouter(prefix="/browser")
 
     @app.on_event("startup")
     async def startup():
         _get_or_create_token()
         logger.info(f"Browser Control API started. Token: {_api_token}")
 
-    @app.get("/status")
+    @app.on_event("shutdown")
+    async def shutdown():
+        for session in list(_sessions.values()):
+            await session.close()
+        _sessions.clear()
+        logger.info("Browser Control API shutdown, all sessions closed")
+
+    @router.get("/status")
     async def status(authorization: Optional[str] = Header(None)):
         """获取所有浏览器会话状态"""
         _verify_token(authorization)
@@ -76,10 +86,11 @@ def create_browser_api() -> FastAPI:
                 "proxy": session.proxy_session.proxy_url if session.proxy_session else "",
                 "node_id": session.node.id,
                 "url": session.current_url,
+                "profile": str(session.profile.profile_path) if session.profile else "",
             })
         return {"sessions": result, "count": len(result)}
 
-    @app.post("/start", response_model=BrowserStartResponse)
+    @router.post("/start")
     async def start_browser(
         req: BrowserStartRequest,
         authorization: Optional[str] = Header(None),
@@ -101,39 +112,39 @@ def create_browser_api() -> FastAPI:
         if not node.clash_proxy:
             raise HTTPException(status_code=400, detail="Node has no clash_proxy data")
 
-        browser_id = f"node-{req.node_id}-{secrets.token_hex(4)}"
-
         session = BrowserSession(node, req.url)
         result = await session.start()
 
         if result["status"] == "error":
             raise HTTPException(status_code=500, detail=result.get("error", "Start failed"))
 
-        _sessions[browser_id] = session
+        _sessions[session.browser_id] = session
 
         return BrowserStartResponse(
-            browser_id=browser_id,
+            browser_id=session.browser_id,
             status="running",
             proxy=result["proxy"],
             node_id=req.node_id,
+            url=result.get("url", ""),
+            profile=result.get("profile", ""),
         )
 
-    @app.post("/stop")
+    @router.post("/stop")
     async def stop_browser(
-        browser_id: str,
+        req: BrowserStopRequest,
         authorization: Optional[str] = Header(None),
     ):
         """停止指定浏览器会话"""
         _verify_token(authorization)
 
-        session = _sessions.pop(browser_id, None)
+        session = _sessions.pop(req.browser_id, None)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
         await session.close()
-        return BrowserMessageResponse(message="Browser stopped", browser_id=browser_id)
+        return BrowserMessageResponse(message="Browser stopped", browser_id=req.browser_id)
 
-    @app.post("/goto")
+    @router.post("/goto")
     async def goto_url(
         browser_id: str,
         req: BrowserGotoRequest,
@@ -149,7 +160,7 @@ def create_browser_api() -> FastAPI:
         result = await session.goto(req.url)
         return result
 
-    @app.post("/click")
+    @router.post("/click")
     async def click_element(
         browser_id: str,
         req: BrowserClickRequest,
@@ -165,7 +176,7 @@ def create_browser_api() -> FastAPI:
         result = await session.click(req.selector)
         return result
 
-    @app.post("/fill")
+    @router.post("/fill")
     async def fill_form(
         browser_id: str,
         req: BrowserFillRequest,
@@ -181,7 +192,7 @@ def create_browser_api() -> FastAPI:
         result = await session.fill(req.selector, req.text)
         return result
 
-    @app.post("/evaluate")
+    @router.post("/evaluate")
     async def evaluate_script(
         browser_id: str,
         req: BrowserEvaluateRequest,
@@ -197,7 +208,7 @@ def create_browser_api() -> FastAPI:
         result = await session.evaluate(req.script)
         return result
 
-    @app.get("/screenshot")
+    @router.get("/screenshot")
     async def screenshot(
         browser_id: str,
         authorization: Optional[str] = Header(None),
@@ -213,10 +224,9 @@ def create_browser_api() -> FastAPI:
         if not image_bytes:
             raise HTTPException(status_code=500, detail="Screenshot failed")
 
-        from fastapi.responses import Response
         return Response(content=image_bytes, media_type="image/png")
 
-    @app.get("/dom")
+    @router.get("/dom")
     async def get_dom(
         browser_id: str,
         authorization: Optional[str] = Header(None),
@@ -231,4 +241,5 @@ def create_browser_api() -> FastAPI:
         text = await session.get_dom_text()
         return {"text": text}
 
+    app.include_router(router)
     return app

@@ -43,6 +43,7 @@ browser:
   headless: false
   isolate_profile: true
   profile_dir: data/browser_profiles
+  cleanup_profile_on_close: false
   default_url: https://www.google.com
   control_api_host: "127.0.0.1"
   control_api_port: 8787

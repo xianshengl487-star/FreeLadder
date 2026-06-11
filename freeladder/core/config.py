@@ -57,6 +57,7 @@ class BrowserConfig(BaseModel):
     headless: bool = False
     isolate_profile: bool = True
     profile_dir: str = "data/browser_profiles"
+    cleanup_profile_on_close: bool = False
     default_url: str = "https://www.google.com"
     control_api_host: str = "127.0.0.1"
     control_api_port: int = 8787

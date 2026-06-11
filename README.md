@@ -181,9 +181,18 @@ python tools/build_exe.py
 
 打包后请手动将 Mihomo 二进制文件放入 `dist/FreeLadder/bin/` 目录。
 
-## 内置隔离浏览器
+## 内置隔离浏览器 Browser Sandbox
 
 FreeLadder Browser Sandbox 为单个节点启动独立 Chromium 浏览器，所有流量仅通过该节点代理，不修改系统代理。
+
+### 功能
+
+- 用指定节点启动独立 Chromium 浏览器
+- 不修改系统代理，不影响电脑其他软件
+- 浏览器关闭后自动关闭临时 Mihomo 并清理
+- 支持持久 profile（保留 cookies、登录状态）
+- 支持本地控制 API：goto/click/fill/evaluate/screenshot/dom
+- 支持可选扩展加载（实验性）
 
 ### 安装
 
@@ -192,7 +201,11 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-### 使用
+### Mihomo
+
+需要将 `mihomo.exe`（Windows）或 `mihomo`（Linux/Mac）放入项目的 `bin/` 目录，或设置环境变量 `MIHOMO_PATH`。
+
+### CLI 使用
 
 ```bash
 # 用指定节点打开浏览器
@@ -202,30 +215,43 @@ python main.py browse --node-id 1 --url https://www.google.com
 python main.py browser-api
 ```
 
-### 工作原理
-
-1. 为节点生成临时 Mihomo 配置（仅包含该节点）
-2. Mihomo 监听 127.0.0.1 随机端口
-3. Chromium 通过该端口代理访问网络
-4. 关闭浏览器后自动清理 Mihomo 进程和临时文件
-
 ### 控制 API
 
 启动 `browser-api` 后，可通过 HTTP 接口操作浏览器：
 
 | 接口 | 方法 | 说明 |
 |------|------|------|
-| `/start` | POST | 为节点启动浏览器 |
-| `/stop` | POST | 停止浏览器会话 |
-| `/goto` | POST | 导航到指定 URL |
-| `/click` | POST | 点击元素 |
-| `/fill` | POST | 填充表单 |
-| `/evaluate` | POST | 执行 JavaScript |
-| `/screenshot` | GET | 截取页面截图 |
-| `/dom` | GET | 获取页面 DOM 文本 |
-| `/status` | GET | 获取所有会话状态 |
+| `/browser/status` | GET | 获取所有会话状态 |
+| `/browser/start` | POST | 为节点启动浏览器 |
+| `/browser/stop` | POST | 停止浏览器会话 |
+| `/browser/goto` | POST | 导航到指定 URL |
+| `/browser/click` | POST | 点击元素 |
+| `/browser/fill` | POST | 填充表单 |
+| `/browser/evaluate` | POST | 执行 JavaScript |
+| `/browser/screenshot` | GET | 截取页面截图 |
+| `/browser/dom` | GET | 获取页面 DOM 文本 |
 
-> 控制 API 默认只监听 127.0.0.1，启动时会打印 API Token。
+### API 示例
+
+```bash
+# 获取状态
+curl -H "Authorization: Bearer <TOKEN>" \
+  http://127.0.0.1:8787/browser/status
+
+# 启动浏览器
+curl -X POST http://127.0.0.1:8787/browser/start \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"node_id": 1, "url": "https://www.google.com"}'
+```
+
+### 安全说明
+
+- 控制 API 默认只监听 127.0.0.1
+- 启动时生成随机 token，需在请求头中携带
+- 不要把 API 暴露到公网
+- 扩展插件功能目前为实验性
+- AI 操作功能目前只保留基础接口，未实现复杂 agent
 
 ## 开发与测试
 

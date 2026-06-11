@@ -286,13 +286,15 @@ def browse(ctx, node_id, url):
             return
 
         click.echo(f"✓ 浏览器已启动")
-        click.echo(f"  Browser ID: node-{node_id}")
+        click.echo(f"  Browser ID: {result['browser_id']}")
         click.echo(f"  Proxy: {result['proxy']}")
+        if result.get("profile"):
+            click.echo(f"  Profile: {result['profile']}")
+        if result.get("url"):
+            click.echo(f"  URL: {result['url']}")
 
-        # 阻塞等待浏览器关闭
         try:
-            while session.is_running:
-                await asyncio.sleep(1)
+            await session.wait_closed()
         except KeyboardInterrupt:
             pass
         finally:
@@ -316,15 +318,21 @@ def browser_api(ctx):
 
     app = create_browser_api()
     token = _get_or_create_token()
+    host = cfg.browser.control_api_host
+    port = cfg.browser.control_api_port
 
-    click.echo(f"启动 Browser Control API: http://{cfg.browser.control_api_host}:{cfg.browser.control_api_port}")
-    click.echo(f"API Token: {token}")
-    click.echo(f"文档: http://{cfg.browser.control_api_host}:{cfg.browser.control_api_port}/docs")
+    click.echo(f"Browser Control API:")
+    click.echo(f"  URL:   http://{host}:{port}")
+    click.echo(f"  Token: {token}")
+    click.echo(f"  Docs:  http://{host}:{port}/docs")
+    click.echo(f"")
+    click.echo(f"Example:")
+    click.echo(f'  curl -H "Authorization: Bearer {token}" http://{host}:{port}/browser/status')
 
     uvicorn.run(
         app,
-        host=cfg.browser.control_api_host,
-        port=cfg.browser.control_api_port,
+        host=host,
+        port=port,
         log_level="info",
     )
 

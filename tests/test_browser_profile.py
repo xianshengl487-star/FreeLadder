@@ -2,7 +2,6 @@
 验证浏览器 profile 管理。
 """
 import tempfile
-from pathlib import Path
 
 from freeladder.browser.profiles import BrowserProfile
 
@@ -32,3 +31,15 @@ def test_browser_profile_safe_name():
         # 冒号和斜线应被替换
         assert ":" not in profile.profile_path.name
         assert "/" not in profile.profile_path.name
+
+
+def test_browser_profile_create_and_remove_with_special_chars():
+    """带特殊字符的 node_key 也能安全创建"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        profile = BrowserProfile(tmpdir, "vless:abc/123")
+        path = profile.create()
+        assert path.exists()
+        assert ":" not in path.name
+        assert "/" not in path.name
+        profile.remove()
+        assert not path.exists()

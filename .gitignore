@@ -26,6 +26,8 @@ build/
 data/*.db
 data/*.db-wal
 data/*.db-shm
+data/tmp_browser_*/
+data/browser_profiles/
 exports/*.yaml
 exports/*.txt
 

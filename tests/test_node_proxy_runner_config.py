@@ -1,8 +1,6 @@
 """tests/test_node_proxy_runner_config.py
 验证 NodeProxySession 生成的 Mihomo 配置。
 """
-import yaml
-
 from freeladder.core.models import Node, Protocol
 from freeladder.browser.node_proxy_runner import NodeProxySession
 
@@ -70,7 +68,7 @@ def test_config_uses_global_mode():
     config = session._build_mihomo_config()
 
     assert config["mode"] == "global"
-    assert "MATCH,BrowserProxy" in config["rules"]
+    assert "MATCH,Proxy" in config["rules"]
 
 
 def test_config_external_controller_127_0_0_1():
@@ -79,7 +77,7 @@ def test_config_external_controller_127_0_0_1():
         protocol=Protocol.HTTP,
         server="1.2.3.4",
         port=80,
-        clash_proxy={"name": "h", "type": "http", "server": "1.2.3.4", "port": 80},
+        clash_proxy={"name": "h", "type": "http", "server": "12.3.4", "port": 80},
     )
 
     session = NodeProxySession(node)
@@ -88,6 +86,36 @@ def test_config_external_controller_127_0_0_1():
     config = session._build_mihomo_config()
 
     assert config["external-controller"] == "127.0.0.1:12346"
+
+
+def test_config_has_secret():
+    """配置包含 secret"""
+    node = Node(
+        protocol=Protocol.HTTP,
+        server="1.2.3.4",
+        port=80,
+        clash_proxy={"name": "h", "type": "http", "server": "1.2.3.4", "port": 80},
+    )
+
+    session = NodeProxySession(node)
+    config = session._build_mihomo_config()
+
+    assert len(config["secret"]) == 32  # token_hex(16) = 32 chars
+
+
+def test_config_log_level_warning():
+    """日志级别为 warning，减少输出"""
+    node = Node(
+        protocol=Protocol.HTTP,
+        server="1.2.3.4",
+        port=80,
+        clash_proxy={"name": "h", "type": "http", "server": "1.2.3.4", "port": 80},
+    )
+
+    session = NodeProxySession(node)
+    config = session._build_mihomo_config()
+
+    assert config["log-level"] == "warning"
 
 
 def test_reject_node_without_clash_proxy():
@@ -101,3 +129,17 @@ def test_reject_node_without_clash_proxy():
     session = NodeProxySession(node)
     result = session.start()
     assert result is False
+
+
+def test_proxy_url_format():
+    """proxy_url 格式正确"""
+    node = Node(
+        protocol=Protocol.HTTP,
+        server="1.2.3.4",
+        port=80,
+        clash_proxy={"name": "h", "type": "http", "server": "1.2.3.4", "port": 80},
+    )
+
+    session = NodeProxySession(node)
+    session.mixed_port = 34567
+    assert session.proxy_url == "http://127.0.0.1:34567"

@@ -43,7 +43,7 @@ def main():
         check(f"import browser module: {e}", False)
 
     try:
-        from freeladder.browser.schemas import BrowserStartRequest, BrowserStartResponse
+        from freeladder.browser.schemas import BrowserStartRequest, BrowserStartResponse, BrowserStopRequest
         check("import schemas", True)
     except Exception as e:
         check(f"import schemas: {e}", False)
@@ -62,6 +62,7 @@ def main():
     check("browser.headless default False", cfg.browser.headless is False)
     check("browser.control_api_port default 8787", cfg.browser.control_api_port == 8787)
     check("browser.binds to 127.0.0.1", cfg.browser.control_api_host == "127.0.0.1")
+    check("browser.cleanup_profile_on_close default False", cfg.browser.cleanup_profile_on_close is False)
 
     # 3. NodeProxySession 配置生成
     print("\n[3] NodeProxySession config generation")
@@ -89,7 +90,7 @@ def main():
     check("mode is global", config["mode"] == "global")
     check("external-controller on 127.0.0.1",
           config["external-controller"].startswith("127.0.0.1:"))
-    check("rules use BrowserProxy", "MATCH,BrowserProxy" in config["rules"])
+    check("rules use Proxy", "MATCH,Proxy" in config["rules"])
 
     # 4. 无 clash_proxy 节点拒绝启动
     print("\n[4] Reject node without clash_proxy")
@@ -105,30 +106,69 @@ def main():
         profile = BrowserProfile(tmpdir, "vless:abc123")
         profile.create()
         check("profile dir created", profile.profile_path.exists())
+        check("profile dir safe name (no colon)", ":" not in profile.profile_path.name)
         profile.remove()
         check("profile dir removed", not profile.profile_path.exists())
 
-    # 6. Schemas
-    print("\n[6] API Schemas")
-    from freeladder.browser.schemas import BrowserStartRequest
+    # 6. BrowserSession browser_id
+    print("\n[6] BrowserSession lifecycle")
+    bs = BrowserSession(node)
+    check("browser_id generated", len(bs.browser_id) > 0)
+    check("browser_id starts with node-", bs.browser_id.startswith("node-"))
+
+    # close() 在未启动时不报错
+    import asyncio
+
+    async def _test_close_noop():
+        await bs.close()
+
+    try:
+        asyncio.run(_test_close_noop())
+        check("close() on unstarted session no error", True)
+    except Exception as e:
+        check(f"close() on unstarted session no error: {e}", False)
+
+    # 7. API routes
+    print("\n[7] API routes")
+    from freeladder.browser.control_api import create_browser_api
+    app = create_browser_api()
+    paths = set()
+    for route in app.routes:
+        if hasattr(route, "path"):
+            paths.add(route.path)
+
+    check("/browser/status route exists", "/browser/status" in paths)
+    check("/browser/start route exists", "/browser/start" in paths)
+    check("/browser/stop route exists", "/browser/stop" in paths)
+
+    # 8. Schemas
+    print("\n[8] API Schemas")
+    from freeladder.browser.schemas import BrowserStartRequest, BrowserStopRequest
     req = BrowserStartRequest(node_id=42, url="https://example.com")
     check("schema validates node_id", req.node_id == 42)
-    check("schema validates url", req.url == "https://example.com")
+    stop_req = BrowserStopRequest(browser_id="node-42-abcd")
+    check("schema validates browser_id", stop_req.browser_id == "node-42-abcd")
 
-    # 7. Mihomo 可用性检查
-    print("\n[7] Mihomo availability")
+    # 9. Mihomo 可用性检查
+    print("\n[9] Mihomo availability")
     from freeladder.core.utils import get_mihomo_path
     mihomo = get_mihomo_path()
     check("Mihomo path found", mihomo is not None,
           "Mihomo not installed - browse command will not work" if not mihomo else "")
 
-    # 8. Playwright 可用性检查
-    print("\n[8] Playwright availability")
+    # 10. Playwright 可用性检查
+    print("\n[10] Playwright availability")
     try:
         import playwright
         check("playwright installed", True)
     except ImportError:
         check("playwright installed", False, "pip install playwright && playwright install chromium")
+
+    # 11. .gitignore 检查
+    print("\n[11] .gitignore")
+    gitignore = (project_root / ".gitignore").read_text(encoding="utf-8")
+    check("data/tmp_browser_*/ in .gitignore", "tmp_browser_" in gitignore)
+    check("data/browser_profiles/ in .gitignore", "browser_profiles" in gitignore)
 
     # Summary
     print("\n" + "=" * 40)

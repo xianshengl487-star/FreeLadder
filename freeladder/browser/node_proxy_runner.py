@@ -6,19 +6,19 @@
 仅监听 127.0.0.1，不影响系统其他软件。
 """
 
-import json
-import os
+import secrets
+import shutil
 import subprocess
 import time
-import secrets
 from pathlib import Path
 from typing import Optional
 
+import httpx
 import yaml
 from loguru import logger
 
 from freeladder.core.config import get_config
-from freeladder.core.models import Node, ADVANCED_PROTOCOLS
+from freeladder.core.models import Node
 from freeladder.core.utils import find_free_port, get_mihomo_path
 
 
@@ -32,7 +32,6 @@ class NodeProxySession:
         self.secret: str = secrets.token_hex(16)
         self._process: Optional[subprocess.Popen] = None
         self._temp_dir: Optional[Path] = None
-        self._config_path: Optional[Path] = None
 
     @property
     def proxy_url(self) -> str:
@@ -67,23 +66,20 @@ class NodeProxySession:
         self.mixed_port = find_free_port(20000, 60000)
         self.external_controller_port = find_free_port(20000, 60000)
 
-        # 创建临时目录
-        self._temp_dir = Path(f"data/tmp_browser_{os.getpid()}_{self.mixed_port}")
+        # 创建临时目录（在 config.data_path 下）
+        cfg = get_config()
+        self._temp_dir = cfg.data_path / f"tmp_browser_{self.mixed_port}"
         self._temp_dir.mkdir(parents=True, exist_ok=True)
 
         # 生成配置
         config = self._build_mihomo_config()
-        self._config_path = self._temp_dir / "config.yaml"
-        with open(self._config_path, "w", encoding="utf-8") as f:
+        config_path = self._temp_dir / "config.yaml"
+        with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
 
         # 启动进程
         try:
-            cmd = [
-                str(mihomo_path),
-                "-d", str(self._temp_dir),
-                "-f", str(self._config_path),
-            ]
+            cmd = [mihomo_path, "-d", str(self._temp_dir), "-f", str(config_path)]
             self._process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
@@ -91,63 +87,77 @@ class NodeProxySession:
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
 
-            # 等待启动
-            time.sleep(1.0)
-
-            if not self.is_running:
-                logger.error(f"Mihomo 启动失败，进程已退出")
-                self.cleanup()
+            # 等待 API 就绪
+            if not self._wait_ready():
+                logger.error("Mihomo 代理 API 未就绪")
+                self.stop()
                 return False
 
             logger.info(f"Mihomo 代理已启动: {self.proxy_url} (PID={self._process.pid})")
             return True
 
         except Exception as e:
-            logger.error(f"启动 Mihomo 失败: {e}")
-            self.cleanup()
+            logger.error(f"启动 Mihomo 代理失败: {e}")
+            self.stop()
             return False
 
+    def _wait_ready(self, timeout: float = 8.0) -> bool:
+        """等待 Mihomo external-controller API 就绪
+
+        通过请求 /configs 端点判断 Mihomo 是否已启动完成。
+        """
+        url = f"http://127.0.0.1:{self.external_controller_port}/configs"
+        headers = {"Authorization": f"Bearer {self.secret}"}
+        deadline = time.time() + timeout
+
+        while time.time() < deadline:
+            if not self.is_running:
+                return False
+            try:
+                resp = httpx.get(url, headers=headers, timeout=1.0)
+                if resp.status_code in (200, 304):
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.3)
+
+        return False
+
     def stop(self) -> None:
-        """停止 Mihomo 进程并清理临时文件"""
-        if self._process and self.is_running:
-            try:
-                self._process.terminate()
-                self._process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
-                self._process.wait(timeout=3)
-            except Exception as e:
-                logger.warning(f"停止 Mihomo 进程异常: {e}")
+        """停止 Mihomo 进程并清理临时文件（幂等）"""
+        if self._process is not None:
+            if self.is_running:
+                try:
+                    self._process.terminate()
+                    self._process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self._process.kill()
+                    self._process.wait(timeout=3)
+                except Exception:
+                    pass
+            self._process = None
 
-        self._process = None
-        self.cleanup()
+        self._cleanup_temp()
 
-    def cleanup(self) -> None:
-        """清理临时目录"""
+    def _cleanup_temp(self) -> None:
+        """清理临时目录（仅删除 tmp_browser_ 开头的目录）"""
         if self._temp_dir and self._temp_dir.exists():
-            try:
-                import shutil
-                shutil.rmtree(self._temp_dir)
-            except Exception as e:
-                logger.warning(f"清理临时目录失败: {e}")
+            if self._temp_dir.name.startswith("tmp_browser_"):
+                try:
+                    shutil.rmtree(self._temp_dir)
+                except Exception:
+                    pass
         self._temp_dir = None
-        self._config_path = None
 
     def _build_mihomo_config(self) -> dict:
         """构建仅包含当前节点的 Mihomo 配置"""
-        import yaml
-
         proxy_dict = dict(self.node.clash_proxy)
 
-        # 确保 name 和 type 存在
+        # 确保必要字段存在
         if "name" not in proxy_dict:
             proxy_dict["name"] = "BrowserProxy"
         if "type" not in proxy_dict:
             proxy_dict["type"] = self.node.protocol.value
-
-        # 确保 server 和 port 正确
-        proxy_dict["server"] = self.node.server
-        proxy_dict["port"] = self.node.port
 
         config = {
             "mixed-port": self.mixed_port,
@@ -160,13 +170,13 @@ class NodeProxySession:
             "proxies": [proxy_dict],
             "proxy-groups": [
                 {
-                    "name": "BrowserProxy",
+                    "name": "Proxy",
                     "type": "select",
                     "proxies": [proxy_dict["name"]],
                 }
             ],
             "rules": [
-                "MATCH,BrowserProxy"
+                "MATCH,Proxy"
             ],
         }
 
