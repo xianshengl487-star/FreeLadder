@@ -1,10 +1,47 @@
 # path: freeladder/core/utils.py
 """通用工具函数"""
 
+import os
 import re
 import socket
 import time
+from pathlib import Path
 from typing import Optional
+
+
+def get_mihomo_path() -> Optional[str]:
+    """查找 Mihomo 二进制文件路径
+
+    查找顺序:
+    1. 环境变量 MIHOMO_PATH
+    2. 项目根目录下的 bin/mihomo.exe 或 bin/mihomo
+    3. 系统 PATH 中的 mihomo
+    """
+    # 1. 环境变量
+    env_path = os.environ.get("MIHOMO_PATH")
+    if env_path and os.path.isfile(env_path):
+        return env_path
+
+    # 2. 项目 bin 目录
+    project_root = Path(__file__).parent.parent.parent
+    if os.name == "nt":
+        bin_names = ["mihomo.exe", "clash-meta.exe"]
+    else:
+        bin_names = ["mihomo", "clash-meta"]
+
+    for name in bin_names:
+        bin_path = project_root / "bin" / name
+        if bin_path.is_file():
+            return str(bin_path)
+
+    # 3. 系统 PATH
+    for name in bin_names:
+        import shutil
+        which = shutil.which(name)
+        if which:
+            return which
+
+    return None
 
 
 def is_valid_ip(ip: str) -> bool:

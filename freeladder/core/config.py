@@ -51,6 +51,20 @@ class GUIConfig(BaseModel):
     update_interval_minutes: int = 120
 
 
+class BrowserConfig(BaseModel):
+    enabled: bool = True
+    engine: str = "playwright"
+    headless: bool = False
+    isolate_profile: bool = True
+    profile_dir: str = "data/browser_profiles"
+    default_url: str = "https://www.google.com"
+    control_api_host: str = "127.0.0.1"
+    control_api_port: int = 8787
+    allow_external_control: bool = True
+    extension_dirs: list[str] = Field(default_factory=list)
+    ai_control_enabled: bool = True
+
+
 class Config(BaseModel):
     app: AppConfig = Field(default_factory=AppConfig)
     scraper: ScraperConfig = Field(default_factory=ScraperConfig)
@@ -58,6 +72,7 @@ class Config(BaseModel):
     mihomo: MihomoConfig = Field(default_factory=MihomoConfig)
     web: WebConfig = Field(default_factory=WebConfig)
     gui: GUIConfig = Field(default_factory=GUIConfig)
+    browser: BrowserConfig = Field(default_factory=BrowserConfig)
 
     @property
     def data_path(self) -> Path:

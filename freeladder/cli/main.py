@@ -250,6 +250,85 @@ def gui(ctx):
     app.mainloop()
 
 
+@cli.command()
+@click.option("--node-id", required=True, type=int, help="节点 ID")
+@click.option("--url", default=None, help="初始打开的 URL")
+@click.pass_context
+def browse(ctx, node_id, url):
+    """用指定节点打开隔离浏览器"""
+    import asyncio
+    from freeladder.browser import BrowserSession
+
+    db = get_db()
+    nodes = db.get_all_nodes()
+    node = None
+    for n in nodes:
+        if n.id == node_id:
+            node = n
+            break
+
+    if not node:
+        click.echo(f"✗ 未找到节点 ID={node_id}")
+        return
+
+    if not node.clash_proxy:
+        click.echo(f"✗ 节点 {node_id} 没有 clash_proxy 数据，无法启动浏览器")
+        return
+
+    click.echo(f"正在为节点 {node_id} ({node.protocol.value}://{node.server}:{node.port}) 启动浏览器...")
+
+    async def _run():
+        session = BrowserSession(node, url)
+        result = await session.start()
+
+        if result["status"] == "error":
+            click.echo(f"✗ 启动失败: {result.get('error', '未知错误')}")
+            return
+
+        click.echo(f"✓ 浏览器已启动")
+        click.echo(f"  Browser ID: node-{node_id}")
+        click.echo(f"  Proxy: {result['proxy']}")
+
+        # 阻塞等待浏览器关闭
+        try:
+            while session.is_running:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            await session.close()
+            click.echo("✓ 浏览器和代理已关闭")
+
+    asyncio.run(_run())
+
+
+@cli.command()
+@click.pass_context
+def browser_api(ctx):
+    """启动浏览器控制 API"""
+    import uvicorn
+    from freeladder.browser.control_api import create_browser_api, _get_or_create_token
+
+    cfg = ctx.obj["config"]
+    if not cfg.browser.enabled:
+        click.echo("✗ 浏览器功能未启用，请在 config.yaml 中设置 browser.enabled: true")
+        return
+
+    app = create_browser_api()
+    token = _get_or_create_token()
+
+    click.echo(f"启动 Browser Control API: http://{cfg.browser.control_api_host}:{cfg.browser.control_api_port}")
+    click.echo(f"API Token: {token}")
+    click.echo(f"文档: http://{cfg.browser.control_api_host}:{cfg.browser.control_api_port}/docs")
+
+    uvicorn.run(
+        app,
+        host=cfg.browser.control_api_host,
+        port=cfg.browser.control_api_port,
+        log_level="info",
+    )
+
+
 def main():
     """CLI 入口"""
     cli(obj={})

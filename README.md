@@ -16,6 +16,7 @@
 - **GUI 桌面应用**: customtkinter 构建的可视化管理界面
 - **SQLite 存储**: 本地持久化节点数据，支持自动迁移
 - **Windows 打包**: PyInstaller 一键打包为 EXE
+- **隔离浏览器**: 为单个节点启动独立 Chromium，不影响系统代理
 
 ## 安装
 
@@ -110,6 +111,12 @@ python main.py gui
 
 # 查看统计信息
 python main.py stats
+
+# 用节点打开隔离浏览器
+python main.py browse --node-id 1 --url https://www.google.com
+
+# 启动浏览器控制 API
+python main.py browser-api
 ```
 
 ## GUI 使用
@@ -174,6 +181,52 @@ python tools/build_exe.py
 
 打包后请手动将 Mihomo 二进制文件放入 `dist/FreeLadder/bin/` 目录。
 
+## 内置隔离浏览器
+
+FreeLadder Browser Sandbox 为单个节点启动独立 Chromium 浏览器，所有流量仅通过该节点代理，不修改系统代理。
+
+### 安装
+
+```bash
+pip install -r requirements.txt
+playwright install chromium
+```
+
+### 使用
+
+```bash
+# 用指定节点打开浏览器
+python main.py browse --node-id 1 --url https://www.google.com
+
+# 启动浏览器控制 API
+python main.py browser-api
+```
+
+### 工作原理
+
+1. 为节点生成临时 Mihomo 配置（仅包含该节点）
+2. Mihomo 监听 127.0.0.1 随机端口
+3. Chromium 通过该端口代理访问网络
+4. 关闭浏览器后自动清理 Mihomo 进程和临时文件
+
+### 控制 API
+
+启动 `browser-api` 后，可通过 HTTP 接口操作浏览器：
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/start` | POST | 为节点启动浏览器 |
+| `/stop` | POST | 停止浏览器会话 |
+| `/goto` | POST | 导航到指定 URL |
+| `/click` | POST | 点击元素 |
+| `/fill` | POST | 填充表单 |
+| `/evaluate` | POST | 执行 JavaScript |
+| `/screenshot` | GET | 截取页面截图 |
+| `/dom` | GET | 获取页面 DOM 文本 |
+| `/status` | GET | 获取所有会话状态 |
+
+> 控制 API 默认只监听 127.0.0.1，启动时会打印 API Token。
+
 ## 开发与测试
 
 ### 安装开发依赖
@@ -198,6 +251,7 @@ pytest -q
 
 ```bash
 python tools/smoke_test.py
+python tools/browser_smoke_test.py
 ```
 
 ### 基础 CLI 验收
@@ -265,6 +319,7 @@ FreeLadder/
 │   ├── scraper/       # 爬取模块：解析、源管理、爬虫
 │   ├── tester/        # 测试模块：基础测试、Mihomo 管理、真实测试
 │   ├── exporter/      # 导出模块：Clash YAML、Base64 订阅
+│   ├── browser/       # 隔离浏览器：节点代理、Playwright 管理、控制 API
 │   ├── gui/           # GUI 模块：桌面应用界面
 │   ├── web/           # Web 模块：FastAPI RESTful 接口
 │   └── cli/           # CLI 模块：命令行入口

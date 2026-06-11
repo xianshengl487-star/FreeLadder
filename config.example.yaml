@@ -36,3 +36,16 @@ web:
 gui:
   auto_update: false
   update_interval_minutes: 120
+
+browser:
+  enabled: true
+  engine: playwright
+  headless: false
+  isolate_profile: true
+  profile_dir: data/browser_profiles
+  default_url: https://www.google.com
+  control_api_host: "127.0.0.1"
+  control_api_port: 8787
+  allow_external_control: true
+  extension_dirs: []
+  ai_control_enabled: true
