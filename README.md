@@ -170,16 +170,45 @@ curl http://127.0.0.1:8765/clash > clash.yaml
 - `proxy-groups`: Auto (自动选择) + Proxy (手动选择)
 - `rules`: 默认规则
 
-## 打包 EXE
+## Windows 便携版打包
+
+### 构建
 
 ```bash
-pip install pyinstaller
-python tools/build_exe.py
+pip install -r requirements-dev.txt
+python tools/build_windows.py
 ```
 
-输出: `dist/FreeLadder/FreeLadder.exe`
+### 构建并生成 zip
 
-打包后请手动将 Mihomo 二进制文件放入 `dist/FreeLadder/bin/` 目录。
+```bash
+python tools/package_windows.py
+```
+
+### 包含 Playwright Chromium
+
+```bash
+python tools/package_windows.py --include-chromium
+```
+
+### 输出
+
+```text
+dist/FreeLadder/
+release/FreeLadder-Windows-Portable-v1.0.0.zip
+```
+
+### 用户使用
+
+```text
+解压后双击 START.bat 或 FreeLadder.exe
+```
+
+### 旧版打包脚本
+
+```bash
+python tools/build_exe.py
+```
 
 ## 内置隔离浏览器 Browser Sandbox
 

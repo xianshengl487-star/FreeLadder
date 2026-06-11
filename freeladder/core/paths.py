@@ -8,9 +8,15 @@ from pathlib import Path
 
 def get_project_root() -> Path:
     """获取项目根目录"""
+    # 环境变量优先（PyInstaller 打包时由 app_launcher 设置）
+    env_root = os.environ.get("FREELADDER_RUNTIME_ROOT")
+    if env_root:
+        return Path(env_root).resolve()
+
     # 如果是 PyInstaller 打包的，使用 exe 所在目录
     if getattr(sys, 'frozen', False):
-        return Path(sys.executable).parent
+        return Path(sys.executable).resolve().parent
+
     # 否则使用脚本所在目录向上一层到项目根
     return Path(__file__).resolve().parent.parent.parent
 

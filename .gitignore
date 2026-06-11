@@ -19,8 +19,9 @@ env/
 # Distribution
 dist/
 build/
+release/
 *.egg-info/
-*.spec
+*.spec.tmp
 
 # FreeLadder runtime data
 data/*.db
