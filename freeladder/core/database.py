@@ -110,6 +110,80 @@ class Database:
                 except sqlite3.OperationalError:
                     pass  # 字段已存在，忽略
 
+        # 迁移旧格式 node_key (protocol://server:port -> protocol:sha256hash)
+        self._migrate_node_keys()
+
+    def _migrate_node_keys(self):
+        """迁移旧格式 node_key
+
+        旧格式: protocol://server:port (会把同一 server:port 的不同高级协议节点误判为同一个)
+        新格式: protocol:sha256hash (基于 raw_uri 的 SHA256 哈希，精确区分)
+
+        只处理高级协议 (vmess/vless/trojan/ss/ssr/hysteria/hysteria2/tuic)，
+        普通协议 (http/socks5) 的 node_key 不变。
+        """
+        rows = self._conn.execute(
+            "SELECT id, node_key, raw_uri, protocol, server, port FROM nodes"
+        ).fetchall()
+
+        if not rows:
+            return
+
+        advanced_prefixes = (
+            "vmess:", "vless:", "trojan:", "ss:", "ssr:",
+            "hysteria:", "hysteria2:", "tuic:",
+        )
+
+        migrated = 0
+        for row in rows:
+            old_key = row["node_key"] or ""
+            # 只迁移高级协议节点（新 key 不含 "://"）
+            if "://" not in old_key:
+                continue
+            if not any(old_key.lower().startswith(p) for p in
+                       ("vmess://", "vless://", "trojan://", "ss://", "ssr://",
+                        "hysteria://", "hysteria2://", "tuic://")):
+                continue
+
+            raw_uri = row["raw_uri"] or ""
+            proto = row["protocol"] or "unknown"
+
+            # 用与 Node.node_key 相同的算法重算
+            if raw_uri and "://" in raw_uri:
+                import hashlib
+                normalized = raw_uri.split("#", 1)[0].strip()
+                h = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
+                new_key = f"{proto}:{h}"
+            else:
+                # 没有 raw_uri，保留旧 key
+                continue
+
+            if new_key == old_key:
+                continue
+
+            # 检查新 key 是否已存在（可能同一条数据有两种 key）
+            existing = self._conn.execute(
+                "SELECT id FROM nodes WHERE node_key = ?", (new_key,)
+            ).fetchone()
+
+            if existing:
+                # 新 key 已存在，删除旧 key 的记录（保留数据更完整的）
+                self._conn.execute("DELETE FROM nodes WHERE id = ?", (row["id"],))
+                logger.debug(f"迁移: 删除重复节点 {old_key} -> {new_key}")
+            else:
+                # 更新为新 key
+                self._conn.execute(
+                    "UPDATE nodes SET node_key = ? WHERE id = ?",
+                    (new_key, row["id"])
+                )
+                logger.debug(f"迁移: {old_key} -> {new_key}")
+
+            migrated += 1
+
+        if migrated > 0:
+            self._conn.commit()
+            logger.info(f"数据库迁移: 重算了 {migrated} 个高级协议节点的 node_key")
+
     def _node_from_row(self, row: sqlite3.Row) -> Node:
         """从数据库行转换为 Node 对象"""
         data = dict(row)
