@@ -57,3 +57,51 @@ browser:
   allow_external_control: true
   extension_dirs: []
   ai_control_enabled: true
+
+# 源情报引擎配置
+source_intel:
+  enabled: true              # 是否启用源情报引擎
+
+  # GitHub 项目监控
+  github_watch_enabled: true   # 监控 GitHub 仓库
+  github_token: ""             # GitHub API Token（可选，无则匿名）
+  github_account_watch_enabled: false  # GitHub 账号关注（默认关闭）
+  github_check_interval_minutes: 360   # GitHub 检查间隔（分钟）
+  github_max_repos_per_run: 20         # 每轮最多检查仓库数
+  github_use_etag: true               # 使用 ETag 缓存
+  github_follow_with_account: false   # 使用账号关注仓库（默认关闭）
+
+  # 非 GitHub 公开源发现
+  non_github_discovery_enabled: true
+  non_github_check_interval_minutes: 720
+  max_sites_per_run: 20
+  max_links_per_site: 50
+  max_depth_per_site: 0         # 不递归
+
+  # RSS / Atom
+  rss_watch_enabled: true
+  rss_check_interval_minutes: 720
+
+  # 源验证
+  validate_before_enable: true
+  min_nodes_to_accept: 1        # 至少解析出 1 个节点才算有效
+  max_download_mb: 5            # 下载大小限制（MB）
+  max_nodes_per_source: 800
+  max_total_nodes: 8000
+  request_timeout_seconds: 15
+  user_agent: "FreeLadder SourceIntel/1.0"
+
+  # 失败缓存
+  failure_cache_minutes: 60
+  stale_source_days: 7          # 超过 7 天未成功标记 STALE
+  remove_dead_after_failures: 5 # 连续失败 5 次标记 DEAD
+
+  # 自动刷新
+  auto_refresh_sources: true
+  auto_refresh_nodes: false     # 不自动抓节点
+  auto_test_after_refresh: false
+  auto_export_after_refresh: false
+
+  # 安全确认
+  require_user_confirm_for_new_sources: true
+  require_user_confirm_for_github_account_watch: true

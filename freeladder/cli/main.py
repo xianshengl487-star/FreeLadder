@@ -379,6 +379,14 @@ def browser_api(ctx):
     )
 
 
+# 注册源情报引擎 CLI 命令
+try:
+    from freeladder.source_intel.cli import source_intel_group
+    cli.add_command(source_intel_group)
+except ImportError:
+    pass
+
+
 def main():
     """CLI 入口"""
     cli(obj={})

@@ -157,12 +157,15 @@ def scrape_builtin(
     """从内置免费订阅源并发爬取节点
 
     特性:
+    - 合并 legacy 内置源 + source_intel 启用源
     - ThreadPoolExecutor 并发爬取（受 max_workers 控制）
     - cancel_token 支持取消
     - max_total_nodes 限制总节点数
     - max_nodes_per_source 限制单源节点数
     - 失败源缓存避免频繁重试
     - 节流进度回调
+    - DEAD 源自动跳过
+    - 单源失败不影响整体
 
     Args:
         on_progress: 进度回调 (current, total, message)
@@ -178,9 +181,24 @@ def scrape_builtin(
         logger.warning("内置源已禁用 (builtin_enabled=false)")
         return []
 
+    # 收集所有源: legacy 内置 + source_intel 启用源
     sources = [s["url"] for s in BUILTIN_SOURCES]
+
+    # 从 source_intel 获取启用源（仅 enabled，排除 candidate/dead）
+    try:
+        from freeladder.source_intel.engine import SourceIntelEngine
+        si_config = config.source_intel
+        if si_config.enabled:
+            engine = SourceIntelEngine(si_config)
+            enabled_urls = engine.get_enabled_source_urls()
+            if enabled_urls:
+                logger.info(f"从 source_intel 获取 {len(enabled_urls)} 个启用源")
+                sources.extend(enabled_urls)
+    except Exception as e:
+        logger.debug(f"source_intel 未加载: {e}")
+
     if not sources:
-        logger.warning("没有内置订阅源")
+        logger.warning("没有可用订阅源")
         return []
 
     if max_total_nodes is None:
@@ -198,7 +216,7 @@ def scrape_builtin(
         logger.info(f"跳过 {skipped} 个近期失败的源")
 
     if not active_sources:
-        logger.warning("所有内置源均在失败缓存中")
+        logger.warning("所有源均在失败缓存中")
         return []
 
     all_nodes: list[Node] = []
@@ -215,7 +233,7 @@ def scrape_builtin(
                 nodes = nodes[:max_per_source]
             return url, nodes
         except Exception as e:
-            logger.debug(f"内置源爬取失败 {url}: {e}")
+            logger.debug(f"源爬取失败 {url}: {e}")
             _mark_source_failed(url)
             return url, []
 
@@ -259,5 +277,5 @@ def scrape_builtin(
     if before != after:
         logger.info(f"去重: {before} -> {after} 个节点")
 
-    logger.info(f"从内置源共获取 {after} 个节点")
+    logger.info(f"从源共获取 {after} 个节点")
     return all_nodes

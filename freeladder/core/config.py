@@ -73,6 +73,55 @@ class BrowserConfig(BaseModel):
     ai_control_enabled: bool = True
 
 
+class SourceIntelConfig(BaseModel):
+    """源情报引擎配置"""
+    enabled: bool = True
+
+    # GitHub 项目监控
+    github_watch_enabled: bool = True
+    github_token: str = ""
+    github_account_watch_enabled: bool = False
+    github_check_interval_minutes: int = 360
+    github_max_repos_per_run: int = 20
+    github_use_etag: bool = True
+    github_follow_with_account: bool = False
+
+    # 非 GitHub 公开源发现
+    non_github_discovery_enabled: bool = True
+    non_github_check_interval_minutes: int = 720
+    max_sites_per_run: int = 20
+    max_links_per_site: int = 50
+    max_depth_per_site: int = 0
+
+    # RSS / Atom
+    rss_watch_enabled: bool = True
+    rss_check_interval_minutes: int = 720
+
+    # 源验证
+    validate_before_enable: bool = True
+    min_nodes_to_accept: int = 1
+    max_download_mb: int = 5
+    max_nodes_per_source: int = 800
+    max_total_nodes: int = 8000
+    request_timeout_seconds: int = 15
+    user_agent: str = "FreeLadder SourceIntel/1.0"
+
+    # 失败缓存
+    failure_cache_minutes: int = 60
+    stale_source_days: int = 7
+    remove_dead_after_failures: int = 5
+
+    # 自动刷新
+    auto_refresh_sources: bool = True
+    auto_refresh_nodes: bool = False
+    auto_test_after_refresh: bool = False
+    auto_export_after_refresh: bool = False
+
+    # 安全确认
+    require_user_confirm_for_new_sources: bool = True
+    require_user_confirm_for_github_account_watch: bool = True
+
+
 class Config(BaseModel):
     app: AppConfig = Field(default_factory=AppConfig)
     scraper: ScraperConfig = Field(default_factory=ScraperConfig)
@@ -81,6 +130,7 @@ class Config(BaseModel):
     web: WebConfig = Field(default_factory=WebConfig)
     gui: GUIConfig = Field(default_factory=GUIConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
+    source_intel: SourceIntelConfig = Field(default_factory=SourceIntelConfig)
 
     @property
     def data_path(self) -> Path:
