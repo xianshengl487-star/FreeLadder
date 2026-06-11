@@ -8,12 +8,28 @@
 import socket
 import time
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 from loguru import logger
 
 from freeladder.core.config import get_config
 from freeladder.core.models import Node, TestResult, Protocol
+
+
+def _build_proxy_url(
+    scheme: str,
+    host: str,
+    port: int,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+) -> str:
+    """构建代理 URL，认证信息嵌入 URL 中"""
+    if username and password:
+        u = quote(username, safe="")
+        p = quote(password, safe="")
+        return f"{scheme}://{u}:{p}@{host}:{port}"
+    return f"{scheme}://{host}:{port}"
 
 
 def _tcp_test(server: str, port: int, timeout: float = 5.0) -> tuple[bool, Optional[int]]:
@@ -46,22 +62,21 @@ def _http_proxy_test(
     """HTTP 代理测试
 
     通过 HTTP 代理访问测试 URL，检测 204 响应。
+    认证信息通过 proxy URL 传递，不使用 BasicAuth 参数。
 
     Returns:
         (alive, latency_ms, error_message)
     """
-    proxy_url = f"http://{proxy_host}:{proxy_port}"
-    auth = None
-    if username and password:
-        auth = httpx.BasicAuth(username, password)
+    proxy_url = _build_proxy_url("http", proxy_host, proxy_port, username, password)
 
     start = time.time()
     try:
         with httpx.Client(
-            proxies={"http://": proxy_url, "https://": proxy_url},
+            proxy=proxy_url,
             timeout=timeout,
+            follow_redirects=False,
         ) as client:
-            resp = client.get(test_url, auth=auth, follow_redirects=False)
+            resp = client.get(test_url)
             latency = int((time.time() - start) * 1000)
             # 204 或 200 都算成功
             if resp.status_code in (200, 204):
@@ -84,21 +99,21 @@ def _socks5_proxy_test(
     """SOCKS5 代理测试
 
     通过 SOCKS5 代理访问测试 URL。
+    认证信息通过 proxy URL 传递。
 
     Returns:
         (alive, latency_ms, error_message)
     """
-    proxy_url = f"socks5://{proxy_host}:{proxy_port}"
-    if username and password:
-        proxy_url = f"socks5://{username}:{password}@{proxy_host}:{proxy_port}"
+    proxy_url = _build_proxy_url("socks5", proxy_host, proxy_port, username, password)
 
     start = time.time()
     try:
         with httpx.Client(
-            proxies={"http://": proxy_url, "https://": proxy_url},
+            proxy=proxy_url,
             timeout=timeout,
+            follow_redirects=False,
         ) as client:
-            resp = client.get(test_url, follow_redirects=False)
+            resp = client.get(test_url)
             latency = int((time.time() - start) * 1000)
             if resp.status_code in (200, 204):
                 return True, latency, ""

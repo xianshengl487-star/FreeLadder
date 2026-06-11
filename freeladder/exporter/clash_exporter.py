@@ -11,17 +11,52 @@ from loguru import logger
 from freeladder.core.config import get_config
 from freeladder.core.database import Database, get_db
 from freeladder.core.models import Node, ExportOptions
+from freeladder.core.utils import make_unique_proxy_names
+
+
+def _is_valid_proxy(proxy: dict) -> bool:
+    """校验 proxy dict 是否包含必要字段"""
+    if not isinstance(proxy, dict):
+        return False
+    if not proxy.get("name"):
+        return False
+    if not proxy.get("type"):
+        return False
+    if not proxy.get("server"):
+        return False
+    try:
+        port = int(proxy.get("port", 0))
+    except (TypeError, ValueError):
+        return False
+    return 0 < port <= 65535
 
 
 def _build_clash_config(nodes: list[Node]) -> dict:
-    """构建 Clash/Mihomo YAML 配置"""
-    proxies = []
-    proxy_names = []
+    """构建 Clash/Mihomo YAML 配置
 
+    过滤无效 proxy，唯一化 proxy names。
+    """
+    raw_proxies = []
     for node in nodes:
         if node.clash_proxy:
-            proxies.append(node.clash_proxy)
-            proxy_names.append(node.clash_proxy.get("name", node.name))
+            raw_proxies.append(node.clash_proxy)
+
+    # 过滤无效 proxy
+    valid_proxies = []
+    for p in raw_proxies:
+        if _is_valid_proxy(p):
+            valid_proxies.append(p)
+        else:
+            logger.debug(f"导出跳过无效 proxy: {p.get('name', '?')}")
+
+    if not valid_proxies:
+        return {"port": 7890, "socks-port": 7891, "allow-lan": False,
+                "mode": "rule", "log-level": "info", "proxies": [],
+                "proxy-groups": [], "rules": ["MATCH,DIRECT"]}
+
+    # 唯一化 proxy names
+    unique_proxies = make_unique_proxy_names(valid_proxies)
+    proxy_names = [p["name"] for p in unique_proxies]
 
     config = {
         "port": 7890,
@@ -29,7 +64,7 @@ def _build_clash_config(nodes: list[Node]) -> dict:
         "allow-lan": False,
         "mode": "rule",
         "log-level": "info",
-        "proxies": proxies,
+        "proxies": unique_proxies,
         "proxy-groups": [
             {
                 "name": "Auto",

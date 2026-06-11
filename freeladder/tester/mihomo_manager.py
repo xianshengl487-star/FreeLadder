@@ -21,7 +21,7 @@ import httpx
 from loguru import logger
 
 from freeladder.core.config import get_config
-from freeladder.core.utils import find_free_port, mask_secret
+from freeladder.core.utils import find_free_port, mask_secret, make_unique_proxy_names
 from freeladder.core.models import Node
 
 
@@ -37,11 +37,9 @@ def _find_mihomo_binary(config_path: str = "") -> Optional[str]:
     import sys
     import shutil
 
-    # 1. 检查配置
     if config_path and os.path.isfile(config_path):
         return config_path
 
-    # 2. 检查项目 bin 目录
     from freeladder.core.paths import get_project_root
     root = get_project_root()
 
@@ -61,7 +59,6 @@ def _find_mihomo_binary(config_path: str = "") -> Optional[str]:
             logger.info(f"找到 Mihomo: {path}")
             return str(path)
 
-    # 3. 检查系统 PATH
     for name in ["mihomo", "clash-meta"]:
         found = shutil.which(name)
         if found:
@@ -78,7 +75,11 @@ def _generate_config(
     ec_port: int,
     secret: str,
 ) -> dict:
-    """生成 Mihomo 临时配置"""
+    """生成 Mihomo 临时配置
+
+    rules 指向 FreeLadder-Test 组，确保流量经过代理节点。
+    proxy names 已经过唯一化处理。
+    """
     proxy_names = [p.get("name", f"proxy-{i}") for i, p in enumerate(proxies)]
 
     config = {
@@ -97,7 +98,7 @@ def _generate_config(
             }
         ],
         "rules": [
-            "MATCH,DIRECT"
+            "MATCH,FreeLadder-Test"
         ],
     }
     return config
@@ -141,7 +142,8 @@ class MihomoManager:
         """启动 Mihomo 进程
 
         Args:
-            proxies: 代理节点列表（dict 格式）
+            proxies: 代理节点列表（dict 格式），name 应已唯一化。
+                     调用方（如 mihomo_tester）负责保证 name 唯一性。
 
         Returns:
             是否成功启动
@@ -168,7 +170,7 @@ class MihomoManager:
             import secrets
             self._secret = secrets.token_hex(16)
 
-        # 生成配置
+        # 生成配置（proxy names 应已由调用方唯一化）
         config_data = _generate_config(
             proxies, self._mixed_port, self._ec_port, self._secret
         )

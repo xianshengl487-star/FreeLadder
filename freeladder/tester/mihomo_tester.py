@@ -3,6 +3,9 @@
 
 通过 Mihomo External Controller API 对高级协议节点进行真实延迟测试。
 支持 VMess、VLESS、Trojan、Hysteria、TUIC、SS 等协议。
+
+注意: proxy name 在 MihomoManager.start() 中会做唯一化处理，
+本模块在调用前也会做唯一化，确保 name -> node 的映射不会断裂。
 """
 
 import math
@@ -12,6 +15,7 @@ from loguru import logger
 
 from freeladder.core.config import get_config
 from freeladder.core.models import Node, TestResult, ADVANCED_PROTOCOLS
+from freeladder.core.utils import make_unique_proxy_names
 from .mihomo_manager import MihomoManager
 
 # 每批测试的节点数量上限
@@ -40,9 +44,10 @@ def mihomo_test_nodes(
 
     流程:
     1. 过滤出高级协议节点
-    2. 转换为 Mihomo proxy 格式
-    3. 分批启动 Mihomo 进行测试
-    4. 收集测试结果
+    2. 转换为 Mihomo proxy 格式并唯一化 name
+    3. 维护 name -> node 映射
+    4. 分批启动 Mihomo 进行测试
+    5. 收集测试结果
 
     Args:
         nodes: 待测试节点列表
@@ -105,7 +110,11 @@ def _test_batch(
     batch_offset: int,
     total: int,
 ) -> list[TestResult]:
-    """测试一批节点"""
+    """测试一批节点
+
+    proxy name 唯一化后维护 name -> node 的映射，
+    确保测试结果能正确对应到原节点。
+    """
     proxies = _nodes_to_proxies(nodes)
     if not proxies:
         return [TestResult(
@@ -116,11 +125,27 @@ def _test_batch(
             test_mode="mihomo",
         ) for n in nodes if not n.clash_proxy]
 
+    # 唯一化 proxy names，维护映射: clash_proxy 的原始 name -> 唯一化后 name
+    unique_proxies = make_unique_proxy_names(proxies)
+    # proxy 对象是同一个 dict，用 id() 建立映射
+    proxy_id_to_unique_name: dict[int, str] = {}
+    for orig, unique in zip(proxies, unique_proxies):
+        proxy_id_to_unique_name[id(orig)] = unique["name"]
+
+    # 节点到唯一化 name 的映射
+    node_to_unique_name: dict[int, str] = {}
+    for node in nodes:
+        if node.clash_proxy is not None:
+            node_to_unique_name[id(node.clash_proxy)] = proxy_id_to_unique_name.get(
+                id(node.clash_proxy),
+                node.clash_proxy.get("name", node.name),
+            )
+
     results: list[TestResult] = []
 
     try:
-        # 启动 Mihomo
-        if not manager.start(proxies):
+        # 启动 Mihomo (内部也会做唯一化，两次唯一化结果一致)
+        if not manager.start(unique_proxies):
             logger.error("Mihomo 启动失败，跳过本批次")
             return [TestResult(
                 node_id=n.id,
@@ -142,7 +167,11 @@ def _test_batch(
                 ))
                 continue
 
-            proxy_name = node.clash_proxy.get("name", node.name)
+            # 从唯一化后的 proxies 查找对应 name
+            proxy_name = node_to_unique_name.get(id(node.clash_proxy))
+            if proxy_name is None:
+                # fallback: 直接用原始 name
+                proxy_name = node.clash_proxy.get("name", node.name)
 
             alive, latency, error = manager.test_proxy_delay(
                 proxy_name,

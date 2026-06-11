@@ -4,9 +4,11 @@
 import base64
 from typing import Optional
 
+import yaml
 from loguru import logger
 
 from freeladder.core.config import get_config
+from freeladder.core.models import Node, Protocol
 
 
 def load_sources() -> list[str]:
@@ -26,11 +28,9 @@ def decode_subscription_content(content: str) -> str:
     订阅源通常是 base64 编码的文本，包含节点 URI，每行一个。
     有些源直接返回明文。
     """
-    # 先尝试去掉空白
     stripped = content.strip()
 
     # 检查是否是 base64
-    # 简单启发式：如果内容只包含 base64 字符且长度合理
     import re
     b64_pattern = re.compile(r'^[A-Za-z0-9+/=\s]+$')
     if b64_pattern.match(stripped) and len(stripped) > 20:
@@ -42,7 +42,7 @@ def decode_subscription_content(content: str) -> str:
             logger.debug("检测到 base64 编码订阅")
             return decoded
 
-    # 可能是多行 base64（每行一个 URI，整体再 base64）
+    # 可能是单行 base64
     lines = stripped.splitlines()
     if len(lines) == 1 and _looks_like_base64(stripped):
         decoded = _safe_b64_decode(stripped)
@@ -56,7 +56,6 @@ def decode_subscription_content(content: str) -> str:
 def _looks_like_base64(text: str) -> bool:
     """判断文本是否像 base64"""
     import re
-    # 去掉换行和空格后检查
     cleaned = text.replace('\n', '').replace('\r', '').replace(' ', '')
     return bool(re.match(r'^[A-Za-z0-9+/]+={0,2}$', cleaned))
 
@@ -64,13 +63,11 @@ def _looks_like_base64(text: str) -> bool:
 def _safe_b64_decode(data: str) -> str:
     """安全 base64 解码"""
     cleaned = data.replace('\n', '').replace('\r', '').replace(' ', '')
-    # 补齐 padding
     missing = len(cleaned) % 4
     if missing:
         cleaned += '=' * (4 - missing)
     try:
         result = base64.b64decode(cleaned)
-        # 尝试多种编码
         for encoding in ['utf-8', 'gbk', 'gb2312', 'latin-1']:
             try:
                 return result.decode(encoding)
@@ -81,26 +78,87 @@ def _safe_b64_decode(data: str) -> str:
         return ""
 
 
+def _protocol_from_type(type_value: str) -> Protocol:
+    """从 Clash type 字段映射到 Protocol 枚举"""
+    type_value = (type_value or "").lower()
+    try:
+        return Protocol(type_value)
+    except ValueError:
+        return Protocol.UNKNOWN
+
+
+def extract_nodes_from_clash_yaml(content: str) -> list[Node]:
+    """从 Clash/Mihomo YAML 中直接提取完整 proxy dict，不降级为简化 URI。
+
+    保留所有高级协议参数（uuid, password, sni, obfs 等），
+    确保导出和测试时参数不丢失。
+    """
+    nodes: list[Node] = []
+
+    try:
+        data = yaml.safe_load(content)
+    except Exception:
+        return nodes
+
+    if not isinstance(data, dict):
+        return nodes
+
+    proxies = data.get("proxies", [])
+    if not isinstance(proxies, list):
+        return nodes
+
+    for index, proxy in enumerate(proxies, 1):
+        if not isinstance(proxy, dict):
+            continue
+
+        proto = _protocol_from_type(str(proxy.get("type", "")))
+        server = str(proxy.get("server", "")).strip()
+
+        try:
+            port = int(proxy.get("port", 0))
+        except (TypeError, ValueError):
+            port = 0
+
+        if not server or port <= 0:
+            continue
+
+        name = str(proxy.get("name") or f"{proto.value}-{server}:{port}")
+
+        # 保留完整 proxy dict
+        proxy_dict = dict(proxy)
+        proxy_dict["name"] = name
+        proxy_dict["server"] = server
+        proxy_dict["port"] = port
+
+        node = Node(
+            protocol=proto,
+            server=server,
+            port=port,
+            name=name,
+            raw_uri="",
+            clash_proxy=proxy_dict,
+        )
+        nodes.append(node)
+
+    return nodes
+
+
 def extract_uris_from_yaml(content: str) -> list[str]:
-    """从 YAML 格式订阅中提取节点 URI"""
-    import yaml
+    """从 YAML 格式订阅中提取节点 URI（仅用于非 Clash 格式）"""
     uris = []
     try:
         data = yaml.safe_load(content)
         if isinstance(data, dict):
-            # Clash 格式: proxies 列表
             proxies = data.get("proxies", [])
             if isinstance(proxies, list):
                 for p in proxies:
                     if isinstance(p, dict):
-                        # 构建简单 URI
                         proto = p.get("type", "")
                         server = p.get("server", "")
                         port = p.get("port", 0)
                         if server and port:
                             uris.append(f"{proto}://{server}:{port}")
         elif isinstance(data, list):
-            # 列表格式
             for item in data:
                 if isinstance(item, str):
                     uris.append(item)

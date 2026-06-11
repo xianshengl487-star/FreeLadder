@@ -35,6 +35,10 @@ config.yaml
 # Logs
 *.log
 
+# Mihomo binaries
+bin/mihomo*
+bin/clash-meta*
+
 # OS
 .DS_Store
 Thumbs.db

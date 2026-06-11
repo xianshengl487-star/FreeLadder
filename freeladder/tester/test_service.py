@@ -4,7 +4,7 @@
 根据协议类型自动选择测试方式:
 - HTTP/SOCKS5: 基础测试
 - VMess/VLESS/Trojan/Hysteria/TUIC/SS: Mihomo 真实测试
-- Mihomo 不可用时可降级为 TCP fallback
+- Mihomo 不可用时可降级为 TCP fallback（不会重复写入失败结果）
 """
 
 import time
@@ -19,6 +19,7 @@ from freeladder.core.models import Node, TestResult, ADVANCED_PROTOCOLS
 from freeladder.core.scoring import calculate_score, get_signal
 from .basic_tester import basic_test_node
 from .mihomo_tester import mihomo_test_nodes
+from .mihomo_manager import MihomoManager
 
 
 class TestService:
@@ -45,8 +46,8 @@ class TestService:
     ) -> list[TestResult]:
         """只测试新节点（未测试过的）"""
         nodes = self._db.get_testable_nodes()
-        # 只取未测试过的
-        nodes = [n for n in nodes if n.last_checked is None]
+        # last_checked 默认是空字符串 ""
+        nodes = [n for n in nodes if not n.last_checked]
         if not nodes:
             logger.info("没有新节点需要测试")
             return []
@@ -96,28 +97,34 @@ class TestService:
             logger.info(f"高级协议测试: {len(advanced_nodes)} 个节点")
 
             if self._config.tester.prefer_mihomo:
-                # 优先使用 Mihomo
-                mihomo_results = mihomo_test_nodes(advanced_nodes, on_progress)
-                all_results.extend(mihomo_results)
-                tested_count += len(advanced_nodes)
-
-                # 检查哪些失败了，如果有 tcp_fallback 配置则降级
-                if self._config.tester.tcp_fallback:
-                    failed_nodes = []
-                    mihomo_result_map = {r.node_key: r for r in mihomo_results}
-                    for node in advanced_nodes:
-                        r = mihomo_result_map.get(node.node_key)
-                        if r and not r.alive and r.error == "Mihomo 不可用":
-                            failed_nodes.append(node)
-
-                    if failed_nodes:
-                        logger.info(f"降级 TCP fallback: {len(failed_nodes)} 个节点")
+                # 先检查 Mihomo 是否可用，避免先写失败再 fallback 导致重复计数
+                manager = MihomoManager()
+                if manager.is_available:
+                    mihomo_results = mihomo_test_nodes(advanced_nodes, on_progress)
+                    all_results.extend(mihomo_results)
+                    tested_count += len(advanced_nodes)
+                else:
+                    # Mihomo 不可用
+                    if self._config.tester.tcp_fallback:
+                        logger.info("Mihomo 不可用，降级为 TCP fallback 测试高级协议节点")
                         fallback_results = self._test_basic_nodes(
-                            failed_nodes, on_progress, tested_count, total
+                            advanced_nodes, on_progress, tested_count, total
                         )
                         all_results.extend(fallback_results)
+                        tested_count += len(advanced_nodes)
+                    else:
+                        # 不允许 fallback，直接标记为 mihomo_missing
+                        for node in advanced_nodes:
+                            all_results.append(TestResult(
+                                node_id=node.id,
+                                node_key=node.node_key,
+                                alive=False,
+                                error="Mihomo 不可用",
+                                test_mode="mihomo_missing",
+                            ))
+                        tested_count += len(advanced_nodes)
             else:
-                # 全部使用基础测试
+                # 不优先使用 Mihomo，全部走基础测试
                 basic_results = self._test_basic_nodes(advanced_nodes, on_progress, tested_count, total)
                 all_results.extend(basic_results)
 

@@ -10,6 +10,7 @@ from loguru import logger
 
 from .models import Node, TestResult, Protocol
 from .paths import get_data_dir
+from .config import get_config
 
 
 class Database:
@@ -53,7 +54,8 @@ class Database:
         if db_path:
             self._db_path = Path(db_path)
         else:
-            self._db_path = get_data_dir() / "freeladder.db"
+            cfg = get_config()
+            self._db_path = cfg.data_path / "freeladder.db"
 
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)

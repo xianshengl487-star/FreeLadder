@@ -11,7 +11,12 @@ from freeladder.core.config import get_config
 from freeladder.core.models import Node
 from freeladder.core.dedup import deduplicate_nodes
 from .parser import parse_nodes_from_text
-from .sources import load_sources, decode_subscription_content, extract_uris_from_yaml
+from .sources import (
+    load_sources,
+    decode_subscription_content,
+    extract_uris_from_yaml,
+    extract_nodes_from_clash_yaml,
+)
 
 
 def _fetch_url(url: str, timeout: int = 15) -> Optional[str]:
@@ -34,27 +39,31 @@ def _fetch_url(url: str, timeout: int = 15) -> Optional[str]:
 
 
 def scrape_source(url: str, timeout: int = 15) -> list[Node]:
-    """从单个订阅源获取并解析节点"""
+    """从单个订阅源获取并解析节点
+
+    解析策略:
+    1. 如果内容是 Clash/Mihomo YAML (含 proxies 字段)，直接提取完整 proxy dict
+    2. 否则尝试 base64 解码后按 URI 行解析
+    3. 如果解码后仍是 Clash YAML，再次尝试完整提取
+    """
     logger.info(f"正在获取订阅源: {url}")
     content = _fetch_url(url, timeout)
     if not content:
         return []
 
-    # 检测是否是 YAML 格式
     stripped = content.strip()
-    if stripped.startswith('{') or stripped.startswith('proxies:'):
-        # 可能是 JSON 或 Clash YAML
-        if stripped.startswith('{'):
-            # JSON -> 尝试转为文本提取 URI
-            pass  # 让解析器处理
-        else:
-            uris = extract_uris_from_yaml(stripped)
-            if uris:
-                text_content = '\n'.join(uris)
-                nodes = parse_nodes_from_text(text_content)
-                if nodes:
-                    logger.info(f"从 YAML 订阅源获取 {len(nodes)} 个节点: {url}")
-                    return nodes
+
+    # 直接尝试 Clash YAML 解析（优先，保留完整 proxy 参数）
+    if stripped.startswith('{') or stripped.startswith('proxies:') or 'proxies:' in stripped[:200]:
+        try:
+            import yaml
+            yaml.safe_load(stripped)  # 验证是合法 YAML
+            nodes = extract_nodes_from_clash_yaml(stripped)
+            if nodes:
+                logger.info(f"从 Clash YAML 订阅源获取 {len(nodes)} 个节点: {url}")
+                return nodes
+        except Exception:
+            pass  # 不是合法 YAML，继续尝试其他方式
 
     # 解码内容（自动检测 base64）
     decoded = decode_subscription_content(content)
@@ -62,18 +71,20 @@ def scrape_source(url: str, timeout: int = 15) -> list[Node]:
         logger.warning(f"订阅源解码失败: {url}")
         return []
 
-    # 再次检测 YAML
+    # 解码后也尝试 Clash YAML 解析
     decoded_stripped = decoded.strip()
-    if decoded_stripped.startswith('proxies:'):
-        uris = extract_uris_from_yaml(decoded_stripped)
-        if uris:
-            text_content = '\n'.join(uris)
-            nodes = parse_nodes_from_text(text_content)
+    if decoded_stripped.startswith('{') or 'proxies:' in decoded_stripped[:200]:
+        try:
+            import yaml
+            yaml.safe_load(decoded_stripped)  # 验证是合法 YAML
+            nodes = extract_nodes_from_clash_yaml(decoded_stripped)
             if nodes:
-                logger.info(f"从 YAML 订阅源获取 {len(nodes)} 个节点: {url}")
+                logger.info(f"从 Clash YAML 订阅源获取 {len(nodes)} 个节点: {url}")
                 return nodes
+        except Exception:
+            pass
 
-    # 按行解析 URI
+    # 按行解析 URI（普通文本/base64 订阅）
     nodes = parse_nodes_from_text(decoded)
     if nodes:
         logger.info(f"从订阅源获取 {len(nodes)} 个节点: {url}")

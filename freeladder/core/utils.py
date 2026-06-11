@@ -82,3 +82,30 @@ def mask_secret(secret: str) -> str:
     if not secret or len(secret) < 8:
         return "****"
     return secret[:4] + "****" + secret[-4:]
+
+
+def make_unique_proxy_names(proxies: list[dict]) -> list[dict]:
+    """
+    返回一个新的 proxies 列表，保证每个 proxy 的 name 唯一。
+    不会原地修改外部传入的对象。
+    """
+    seen: dict[str, int] = {}
+    result: list[dict] = []
+
+    for i, proxy in enumerate(proxies, 1):
+        p = dict(proxy)
+        base = str(p.get("name") or f"Node-{i}").strip()
+        if not base:
+            base = f"Node-{i}"
+
+        count = seen.get(base, 0) + 1
+        seen[base] = count
+
+        if count == 1:
+            p["name"] = base
+        else:
+            p["name"] = f"{base}-{count}"
+
+        result.append(p)
+
+    return result

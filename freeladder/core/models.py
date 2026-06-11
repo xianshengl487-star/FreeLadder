@@ -59,15 +59,27 @@ class Node(BaseModel):
 
     @property
     def node_key(self) -> str:
-        """生成节点唯一标识"""
+        """
+        生成节点唯一标识。
+
+        高级协议优先使用 raw_uri 的规范化哈希，避免同一 server:port 下
+        不同 uuid/password/sni/path/flow 的节点被错误覆盖。
+
+        普通 IP:port 节点继续使用 protocol://server:port。
+        """
+        if self.raw_uri and "://" in self.raw_uri:
+            normalized = self.raw_uri.split("#", 1)[0].strip()
+            h = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
+            return f"{self.protocol.value}:{h}"
+
         return f"{self.protocol.value}://{self.server}:{self.port}"
 
     @property
     def raw_hash(self) -> str:
-        """生成 raw_uri 的哈希"""
+        """生成 raw_uri 的哈希 (SHA256)"""
         if self.raw_uri:
-            return hashlib.md5(self.raw_uri.encode()).hexdigest()
-        return hashlib.md5(self.node_key.encode()).hexdigest()
+            return hashlib.sha256(self.raw_uri.strip().encode("utf-8")).hexdigest()
+        return hashlib.sha256(self.node_key.encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict:
         """转换为字典"""
