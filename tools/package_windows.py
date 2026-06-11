@@ -2,7 +2,9 @@
 
 使用方法:
     python tools/package_windows.py
+    python tools/package_windows.py --rebuild
     python tools/package_windows.py --include-chromium
+    python tools/package_windows.py --rebuild --include-chromium
 
 输出:
     release/FreeLadder-Windows-Portable-v{version}.zip
@@ -101,6 +103,11 @@ def main():
         action="store_true",
         help="在软件包中包含 Playwright Chromium",
     )
+    parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="强制重新执行 build_windows.py 后再打包",
+    )
     args = parser.parse_args()
 
     root = Path(__file__).parent.parent
@@ -115,8 +122,8 @@ def main():
 
     # 检查 dist/FreeLadder
     dist_dir = root / "dist" / "FreeLadder"
-    if not dist_dir.exists():
-        print("\ndist/FreeLadder 不存在，开始打包...")
+    if args.rebuild or not dist_dir.exists():
+        print("\n开始重新打包...")
         if not build_package(root):
             print("✗ 打包失败")
             return

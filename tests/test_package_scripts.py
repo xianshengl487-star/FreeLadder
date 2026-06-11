@@ -130,3 +130,30 @@ def test_app_launcher_is_compilable():
         doraise=True,
     )
     assert result is not None
+
+
+def test_build_windows_copies_config_example():
+    """build_windows.py 应包含复制 config.example.yaml 的逻辑"""
+    content = (ROOT / "tools" / "build_windows.py").read_text(encoding="utf-8")
+    assert "config.example.yaml" in content
+    assert "shutil.copy2" in content
+
+
+def test_build_windows_handles_console_exe():
+    """build_windows.py 应包含复制 FreeLadder-Console.exe 的逻辑"""
+    content = (ROOT / "tools" / "build_windows.py").read_text(encoding="utf-8")
+    assert "FreeLadder-Console.exe" in content
+    assert "FreeLadder-Console" in content
+
+
+def test_package_windows_supports_rebuild():
+    """package_windows.py 应支持 --rebuild 参数"""
+    content = (ROOT / "tools" / "package_windows.py").read_text(encoding="utf-8")
+    assert "--rebuild" in content
+
+
+def test_check_env_handles_console_exe():
+    """check_env.bat 应兼容查找 FreeLadder-Console.exe"""
+    content = (ROOT / "tools" / "check_env.bat").read_text(encoding="utf-8")
+    assert "FreeLadder-Console.exe" in content
+    assert "--runtime-check" in content

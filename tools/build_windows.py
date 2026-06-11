@@ -108,6 +108,23 @@ def copy_package_files(root: Path, console: bool = False):
         if not gitkeep.exists():
             gitkeep.write_text("")
 
+    # 显式复制 config.example.yaml 到根目录
+    config_example = root / "config.example.yaml"
+    if config_example.exists():
+        shutil.copy2(config_example, dist_dir / "config.example.yaml")
+        print("  + config.example.yaml")
+    else:
+        print("⚠ config.example.yaml 不存在")
+
+    # 复制 FreeLadder-Console.exe 到主包根目录
+    console_dir = root / "dist" / "FreeLadder-Console"
+    console_exe = console_dir / "FreeLadder-Console.exe"
+    if console_exe.exists():
+        shutil.copy2(console_exe, dist_dir / "FreeLadder-Console.exe")
+        print("  + FreeLadder-Console.exe (copied to main package)")
+    else:
+        print("⚠ 未找到 FreeLadder-Console.exe，check_env.bat 可能不可用")
+
     # 复制 .bat 文件
     tools_src = root / "tools"
     tools_dst = dist_dir / "tools"

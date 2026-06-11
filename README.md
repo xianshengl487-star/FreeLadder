@@ -185,18 +185,41 @@ python tools/build_windows.py
 python tools/package_windows.py
 ```
 
-### 包含 Playwright Chromium
+### 推荐重新构建并打包
+
+```bash
+python tools/package_windows.py --rebuild
+```
+
+### 重新构建并包含 Chromium
+
+```bash
+python tools/package_windows.py --rebuild --include-chromium
+```
+
+### 包含 Playwright Chromium（不重新构建）
 
 ```bash
 python tools/package_windows.py --include-chromium
 ```
 
-### 输出
+### 输出结构
 
 ```text
 dist/FreeLadder/
-release/FreeLadder-Windows-Portable-v1.0.0.zip
+├── FreeLadder.exe
+├── FreeLadder-Console.exe
+├── config.example.yaml
+├── START.bat
+├── bin/
+├── data/
+├── exports/
+├── logs/
+└── tools/
 ```
+
+`FreeLadder-Console.exe` 用于 `check_env.bat` 和 `--runtime-check`。
+`config.example.yaml` 必须位于包根目录，用于首次启动生成 `config.yaml`。
 
 ### 用户使用
 
