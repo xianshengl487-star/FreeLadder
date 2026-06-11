@@ -62,13 +62,28 @@ class Node(BaseModel):
         """
         生成节点唯一标识。
 
-        高级协议优先使用 raw_uri 的规范化哈希，避免同一 server:port 下
-        不同 uuid/password/sni/path/flow 的节点被错误覆盖。
-
-        普通 IP:port 节点继续使用 protocol://server:port。
+        规则：
+        1. raw_uri 存在且包含 :// 时，优先按 raw_uri 去掉 fragment 后 hash。
+        2. Clash YAML 节点 raw_uri 可能为空，但 clash_proxy 保留了完整参数。
+           对高级协议，按 clash_proxy 的稳定 JSON 内容 hash（去掉 name 字段）。
+        3. 普通 HTTP/SOCKS5/IP:port 节点继续使用 protocol://server:port。
         """
         if self.raw_uri and "://" in self.raw_uri:
             normalized = self.raw_uri.split("#", 1)[0].strip()
+            h = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
+            return f"{self.protocol.value}:{h}"
+
+        if self.clash_proxy and self.protocol in ADVANCED_PROTOCOLS:
+            import json
+            proxy_data = dict(self.clash_proxy)
+            # name 只是显示名，不应影响节点唯一性
+            proxy_data.pop("name", None)
+            normalized = json.dumps(
+                proxy_data,
+                sort_keys=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
             h = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
             return f"{self.protocol.value}:{h}"
 

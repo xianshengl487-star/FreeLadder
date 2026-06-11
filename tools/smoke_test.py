@@ -121,6 +121,44 @@ proxies:
     names = [p["name"] for p in unique]
     check("unique names: A, A-2, B", names == ["A", "A-2", "B"])
 
+    # 7. YAML 高级节点去重：同 server:port 不同 uuid 不应被误去重
+    print("\n[7] YAML advanced node dedup")
+    yaml_dedup_content = """
+proxies:
+  - name: vless-a
+    type: vless
+    server: example.com
+    port: 443
+    uuid: uuid-a
+  - name: vless-b
+    type: vless
+    server: example.com
+    port: 443
+    uuid: uuid-b
+"""
+    yaml_nodes = extract_nodes_from_clash_yaml(yaml_dedup_content)
+    yaml_deduped = deduplicate_nodes(yaml_nodes)
+    check("yaml same server:port different uuid not deduped", len(yaml_deduped) == 2)
+    check("yaml node_keys differ", yaml_nodes[0].node_key != yaml_nodes[1].node_key)
+
+    # 8. YAML 高级节点去重：同一节点只是 name 不同应去重
+    yaml_same_content = """
+proxies:
+  - name: name-a
+    type: vless
+    server: example.com
+    port: 443
+    uuid: same-uuid
+  - name: name-b
+    type: vless
+    server: example.com
+    port: 443
+    uuid: same-uuid
+"""
+    yaml_same_nodes = extract_nodes_from_clash_yaml(yaml_same_content)
+    yaml_same_deduped = deduplicate_nodes(yaml_same_nodes)
+    check("yaml same proxy different name deduped to 1", len(yaml_same_deduped) == 1)
+
     # Summary
     print("\n" + "=" * 40)
     print(f"Results: {passed} passed, {failed} failed")

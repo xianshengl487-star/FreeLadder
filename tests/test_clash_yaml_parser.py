@@ -2,6 +2,7 @@
 验证 Clash YAML 中的完整参数不会丢失。
 """
 from freeladder.scraper.sources import extract_nodes_from_clash_yaml
+from freeladder.core.dedup import deduplicate_nodes
 from freeladder.core.models import Protocol
 
 
@@ -89,3 +90,55 @@ proxies:
     for node in nodes:
         assert node.clash_proxy is not None
         assert "server" in node.clash_proxy
+
+
+def test_clash_yaml_same_server_port_different_uuid_not_deduped():
+    """Clash YAML 同 server:port 但 uuid 不同 → 不应被去重"""
+    content = """
+proxies:
+  - name: vless-a
+    type: vless
+    server: example.com
+    port: 443
+    uuid: uuid-a
+    tls: true
+  - name: vless-b
+    type: vless
+    server: example.com
+    port: 443
+    uuid: uuid-b
+    tls: true
+"""
+
+    nodes = extract_nodes_from_clash_yaml(content)
+    result = deduplicate_nodes(nodes)
+
+    assert len(nodes) == 2
+    assert len(result) == 2
+    assert nodes[0].node_key != nodes[1].node_key
+
+
+def test_clash_yaml_same_proxy_different_name_should_dedup():
+    """Clash YAML 同一节点只是 name 不同 → 应去重为 1 个"""
+    content = """
+proxies:
+  - name: name-a
+    type: vless
+    server: example.com
+    port: 443
+    uuid: same-uuid
+    tls: true
+  - name: name-b
+    type: vless
+    server: example.com
+    port: 443
+    uuid: same-uuid
+    tls: true
+"""
+
+    nodes = extract_nodes_from_clash_yaml(content)
+    result = deduplicate_nodes(nodes)
+
+    assert len(nodes) == 2
+    assert len(result) == 1
+    assert nodes[0].node_key == nodes[1].node_key
