@@ -66,12 +66,14 @@ def create_app() -> FastAPI:
                 <div class="stat"><div class="num">{stats['avg_score']}</div><div class="label">平均分数</div></div>
             </div>
             <div style="margin-top: 20px;">
-                <button class="btn green" onclick="doAction('/update')">更新节点</button>
-                <button class="btn orange" onclick="doAction('/test')">测试节点</button>
-                <a class="btn" href="/clash" target="_blank">导出 Clash</a>
-                <a class="btn" href="/sub" target="_blank">导出订阅</a>
+                <button class="btn green" onclick="doAction('/fetch')">🚀 一键获取</button>
+                <button class="btn green" onclick="doAction('/update')">🔄 更新节点</button>
+                <button class="btn orange" onclick="doAction('/test')">⚡ 测试节点</button>
+                <button class="btn" onclick="doGetIP()">🌐 检测 IP</button>
+                <a class="btn" href="/clash" target="_blank">📋 导出 Clash</a>
+                <a class="btn" href="/sub" target="_blank">📦 导出订阅</a>
             </div>
-            <div id="log">就绪</div>
+            <div id="log">就绪 — 点击「一键获取」开始爬取免费节点</div>
             <script>
                 async function doAction(url) {{
                     document.getElementById('log').textContent = '执行中: ' + url + ' ...';
@@ -79,6 +81,16 @@ def create_app() -> FastAPI:
                         const resp = await fetch(url, {{ method: 'POST' }});
                         const data = await resp.json();
                         document.getElementById('log').textContent = JSON.stringify(data, null, 2);
+                    }} catch(e) {{
+                        document.getElementById('log').textContent = '错误: ' + e.message;
+                    }}
+                }}
+                async function doGetIP() {{
+                    document.getElementById('log').textContent = '正在检测公网 IP...';
+                    try {{
+                        const resp = await fetch('/ip');
+                        const data = await resp.json();
+                        document.getElementById('log').textContent = '公网 IP: ' + data.ip;
                     }} catch(e) {{
                         document.getElementById('log').textContent = '错误: ' + e.message;
                     }}
@@ -187,6 +199,31 @@ def create_app() -> FastAPI:
         thread = threading.Thread(target=_do_update, daemon=True)
         thread.start()
         return {"status": "started", "message": "更新任务已启动（后台执行）"}
+
+    @app.get("/ip")
+    def get_public_ip():
+        """检测公网 IP"""
+        from freeladder.core.builtin_sources import detect_public_ip
+        public_ip = detect_public_ip()
+        return {"ip": public_ip}
+
+    @app.post("/fetch")
+    def trigger_fetch():
+        """一键从内置免费源获取节点（后台线程）"""
+        from freeladder.scraper.scraper import scrape_builtin
+
+        def _do_fetch():
+            try:
+                nodes = scrape_builtin()
+                db = get_db()
+                count = db.upsert_nodes(nodes)
+                logger.info(f"一键获取完成: {len(nodes)} 节点, 新增 {count}")
+            except Exception as e:
+                logger.error(f"一键获取失败: {e}")
+
+        thread = threading.Thread(target=_do_fetch, daemon=True)
+        thread.start()
+        return {"status": "started", "message": "一键获取任务已启动（后台执行）"}
 
     @app.post("/test")
     def trigger_test():

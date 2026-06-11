@@ -4,6 +4,8 @@
 用法:
     python main.py init          初始化数据库和配置
     python main.py update        从订阅源爬取更新节点
+    python main.py fetch         一键从内置免费源获取节点
+    python main.py ip            检测公网 IP
     python main.py test          测试所有节点
     python main.py test --new    只测试新节点
     python main.py list          列出所有节点
@@ -92,6 +94,46 @@ def update(ctx):
 
     count = db.upsert_nodes(nodes)
     click.echo(f"✓ 获取 {len(nodes)} 个节点，新增 {count} 个")
+
+
+@cli.command()
+@click.pass_context
+def fetch(ctx):
+    """一键从内置免费源获取节点
+
+    使用预置的公开免费代理订阅源，无需手动配置。
+    适合快速获取大量可用节点。
+    """
+    from freeladder.scraper.scraper import scrape_builtin
+
+    db = get_db()
+
+    click.echo("🔍 正在从内置免费源获取节点...")
+    click.echo("   共 25 个订阅源，可能需要 1-2 分钟\n")
+
+    def on_progress(current, total, msg):
+        click.echo(f"  [{current}/{total}] {msg}")
+
+    nodes = scrape_builtin(on_progress=on_progress)
+
+    if not nodes:
+        click.echo("\n⚠ 未获取到任何节点，可能网络不通或所有源均不可用")
+        return
+
+    count = db.upsert_nodes(nodes)
+    click.echo(f"\n✓ 获取 {len(nodes)} 个节点，新增 {count} 个")
+    click.echo("  可使用 'python main.py test' 测试节点连通性")
+
+
+@cli.command()
+@click.pass_context
+def ip(ctx):
+    """检测公网 IP 地址"""
+    from freeladder.core.builtin_sources import detect_public_ip
+
+    click.echo("🔍 正在检测公网 IP...")
+    public_ip = detect_public_ip()
+    click.echo(f"  公网 IP: {public_ip}")
 
 
 @cli.command()

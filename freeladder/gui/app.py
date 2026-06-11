@@ -96,8 +96,11 @@ class FreeLadderApp(ctk.CTk):
         btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
         btn_frame.pack(fill="x", pady=(0, 8))
 
+        ctk.CTkButton(btn_frame, text="🚀 一键获取", width=110, command=self._do_fetch,
+                      fg_color="#4CAF50", hover_color="#388E3C").pack(side="left", padx=4)
         ctk.CTkButton(btn_frame, text="🔄 更新节点", width=110, command=self._do_update).pack(side="left", padx=4)
         ctk.CTkButton(btn_frame, text="⚡ 测试节点", width=110, command=self._do_test).pack(side="left", padx=4)
+        ctk.CTkButton(btn_frame, text="🌐 检测IP", width=80, command=self._do_detect_ip).pack(side="left", padx=4)
         ctk.CTkButton(btn_frame, text="📋 导出 Clash", width=120, command=self._do_export_clash).pack(side="left", padx=4)
         ctk.CTkButton(btn_frame, text="📦 导出订阅", width=120, command=self._do_export_sub).pack(side="left", padx=4)
         ctk.CTkButton(btn_frame, text="📂 打开目录", width=100, command=self._open_export_dir).pack(side="left", padx=4)
@@ -252,6 +255,30 @@ class FreeLadderApp(ctk.CTk):
 
     # ── 后台任务 ──
 
+    def _do_fetch(self):
+        """一键从内置免费源获取节点"""
+        if self._worker.is_running:
+            self._log("⚠ 已有任务在运行")
+            return
+
+        self._set_status("获取中...")
+        self._log("🚀 从内置免费源获取节点...")
+
+        def _on_progress(current, total, msg):
+            self.after(0, lambda: self._log(f"  [{current}/{total}] {msg}"))
+
+        def _on_done(result):
+            nodes = result if result else []
+            def _update():
+                if nodes:
+                    self._db.upsert_nodes(nodes)
+                self._refresh_list()
+                self._set_status(f"获取完成: {len(nodes)} 个节点")
+            self.after(0, _update)
+
+        from freeladder.scraper.scraper import scrape_builtin
+        self._worker.start(scrape_builtin, on_progress=_on_progress, on_done=_on_done)
+
     def _do_update(self):
         """爬取更新"""
         if self._worker.is_running:
@@ -265,13 +292,33 @@ class FreeLadderApp(ctk.CTk):
             self.after(0, lambda: self._log(f"  [{current}/{total}] {msg}"))
 
         def _on_done(result):
+            nodes = result if result else []
             def _update():
+                if nodes:
+                    self._db.upsert_nodes(nodes)
                 self._refresh_list()
                 self._set_status("更新完成")
             self.after(0, _update)
 
         from freeladder.scraper import scrape_all
         self._worker.start(scrape_all, on_progress=_on_progress, on_done=_on_done)
+
+    def _do_detect_ip(self):
+        """检测公网 IP"""
+        if self._worker.is_running:
+            self._log("⚠ 已有任务在运行")
+            return
+
+        self._log("🔍 正在检测公网 IP...")
+
+        def _on_done(result):
+            def _update():
+                ip_str = result if result else "检测失败"
+                self._log(f"  公网 IP: {ip_str}")
+            self.after(0, _update)
+
+        from freeladder.core.builtin_sources import detect_public_ip
+        self._worker.start(detect_public_ip, on_done=_on_done)
 
     def _do_test(self):
         """测试节点"""

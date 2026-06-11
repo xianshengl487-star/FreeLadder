@@ -1,5 +1,10 @@
 # path: freeladder/scraper/scraper.py
-"""爬取模块 - 从订阅源获取节点"""
+"""爬取模块 - 从订阅源获取节点
+
+支持:
+- scrape_all():   从用户配置的订阅源爬取
+- scrape_builtin(): 从内置免费订阅源爬取
+"""
 
 from typing import Callable, Optional
 
@@ -123,4 +128,45 @@ def scrape_all(
         logger.info(f"去重: {before} -> {after} 个节点")
 
     logger.info(f"共获取 {after} 个节点（来自 {total} 个源）")
+    return all_nodes
+
+
+def scrape_builtin(
+    on_progress: Optional[Callable[[int, int, str], None]] = None,
+) -> list[Node]:
+    """从内置免费订阅源爬取节点
+
+    使用 freeladder.core.builtin_sources 中预置的公开免费代理源，
+    无需用户手动配置即可获取节点。
+    """
+    from freeladder.core.builtin_sources import BUILTIN_SOURCES
+
+    sources = [s["url"] for s in BUILTIN_SOURCES]
+    if not sources:
+        logger.warning("没有内置订阅源")
+        return []
+
+    config = get_config()
+    all_nodes: list[Node] = []
+    total = len(sources)
+
+    for i, url in enumerate(sources, 1):
+        if on_progress:
+            on_progress(i, total, f"正在获取: {url[:60]}...")
+
+        try:
+            nodes = scrape_source(url, config.scraper.request_timeout)
+            all_nodes.extend(nodes)
+        except Exception as e:
+            logger.debug(f"内置源爬取失败 {url}: {e}")
+
+    # 去重
+    before = len(all_nodes)
+    all_nodes = deduplicate_nodes(all_nodes)
+    after = len(all_nodes)
+
+    if before != after:
+        logger.info(f"去重: {before} -> {after} 个节点")
+
+    logger.info(f"从内置源共获取 {after} 个节点")
     return all_nodes
