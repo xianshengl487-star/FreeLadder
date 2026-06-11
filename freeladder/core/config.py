@@ -20,8 +20,12 @@ class AppConfig(BaseModel):
 
 class ScraperConfig(BaseModel):
     sources: list[str] = Field(default_factory=list)
-    request_timeout: int = 15
-    max_workers: int = 20
+    request_timeout: int = 10
+    max_workers: int = 6
+    max_nodes_per_source: int = 800
+    max_total_nodes: int = 8000
+    source_failure_cache_minutes: int = 60
+    builtin_enabled: bool = True
 
 
 class TesterConfig(BaseModel):
@@ -49,6 +53,9 @@ class WebConfig(BaseModel):
 class GUIConfig(BaseModel):
     auto_update: bool = False
     update_interval_minutes: int = 120
+    table_page_size: int = 200
+    max_render_rows: int = 300
+    progress_update_interval_ms: int = 500
 
 
 class BrowserConfig(BaseModel):

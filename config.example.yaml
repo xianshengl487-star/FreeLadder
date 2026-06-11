@@ -11,8 +11,12 @@ scraper:
   sources: []           # 订阅源 URL 列表，示例:
                         #   - https://example.com/sub1.txt
                         #   - https://example.com/sub2.yaml
-  request_timeout: 15   # 请求超时（秒）
-  max_workers: 20       # 并发下载线程数
+  request_timeout: 10   # 请求超时（秒）
+  max_workers: 6        # 并发下载线程数（内置源爬取）
+  max_nodes_per_source: 800   # 每个源最多保留节点数
+  max_total_nodes: 8000       # 一键获取总节点上限
+  source_failure_cache_minutes: 60  # 失败源缓存时间（分钟）
+  builtin_enabled: true       # 是否启用内置免费源
 
 tester:
   test_url: "https://www.gstatic.com/generate_204"
@@ -36,6 +40,9 @@ web:
 gui:
   auto_update: false
   update_interval_minutes: 120
+  table_page_size: 200       # 每页显示节点数
+  max_render_rows: 300       # 最大渲染行数
+  progress_update_interval_ms: 500  # 进度更新间隔（毫秒）
 
 browser:
   enabled: true

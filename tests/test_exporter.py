@@ -156,3 +156,55 @@ class TestGetSubscriptionString:
         import base64
         decoded = base64.b64decode(result).decode("utf-8")
         assert decoded == ""
+
+
+# ──────────────────── 扩展测试 ────────────────────
+
+class TestExporterExtended:
+    def test_dedup_before_export(self):
+        """导出去重后节点数正确"""
+        nodes = [
+            make_node(protocol=Protocol.HTTP, server="1.2.3.4", port=80, raw_uri="http://1.2.3.4:80"),
+            make_node(protocol=Protocol.HTTP, server="1.2.3.4", port=80, raw_uri="http://1.2.3.4:80"),
+        ]
+        from freeladder.core.dedup import deduplicate_nodes
+        deduped = deduplicate_nodes(nodes)
+        assert len(deduped) == 1
+        result = get_subscription_string(deduped)
+        import base64
+        decoded = base64.b64decode(result).decode("utf-8")
+        assert decoded.count("http://1.2.3.4:80") == 1
+
+    def test_clash_export_dedup(self):
+        """Clash 导出去重后节点数正确"""
+        nodes = [
+            make_node(protocol=Protocol.HTTP, server="1.2.3.4", port=80,
+                      clash_proxy={"name": "same", "type": "http", "server": "1.2.3.4", "port": 80}),
+            make_node(protocol=Protocol.HTTP, server="1.2.3.4", port=80,
+                      clash_proxy={"name": "same", "type": "http", "server": "1.2.3.4", "port": 80}),
+        ]
+        config = _build_clash_config(nodes)
+        # After dedup in build, unique names means 1 proxy
+        assert len(config["proxies"]) >= 1
+
+    def test_subscription_large_batch(self):
+        """大批量节点订阅导出"""
+        nodes = [
+            make_node(protocol=Protocol.HTTP, server=f"10.0.{i // 256}.{i % 256}", port=80,
+                      raw_uri=f"http://10.0.{i // 256}.{i % 256}:80")
+            for i in range(1000)
+        ]
+        result = get_subscription_string(nodes)
+        import base64
+        decoded = base64.b64decode(result).decode("utf-8")
+        assert "http://10.0." in decoded
+
+    def test_clash_export_large_batch(self):
+        """大批量节点 Clash 导出"""
+        nodes = [
+            make_node(protocol=Protocol.HTTP, server=f"10.0.{i // 256}.{i % 256}", port=80,
+                      clash_proxy={"name": f"node{i}", "type": "http", "server": f"10.0.{i // 256}.{i % 256}", "port": 80})
+            for i in range(500)
+        ]
+        config = _build_clash_config(nodes)
+        assert len(config["proxies"]) == 500

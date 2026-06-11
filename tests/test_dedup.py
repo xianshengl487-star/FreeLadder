@@ -88,3 +88,61 @@ def test_dedup_skips_nodes_without_server_or_port():
 
 def test_dedup_empty_list():
     assert deduplicate_nodes([]) == []
+
+
+def test_dedup_exact_duplicates():
+    n1 = Node(protocol=Protocol.VMESS, server="10.0.0.1", port=443, raw_uri="vmess://test")
+    n2 = Node(protocol=Protocol.VMESS, server="10.0.0.1", port=443, raw_uri="vmess://test")
+    result = deduplicate_nodes([n1, n2])
+    assert len(result) == 1
+
+
+def test_dedup_same_server_different_port():
+    n1 = Node(protocol=Protocol.VMESS, server="10.0.0.1", port=443, raw_uri="vmess://a")
+    n2 = Node(protocol=Protocol.VMESS, server="10.0.0.1", port=8443, raw_uri="vmess://b")
+    result = deduplicate_nodes([n1, n2])
+    assert len(result) == 2
+
+
+def test_dedup_many_duplicates():
+    nodes = [Node(protocol=Protocol.VMESS, server="10.0.0.1", port=443, raw_uri="vmess://test") for _ in range(100)]
+    result = deduplicate_nodes(nodes)
+    assert len(result) == 1
+
+
+def test_dedup_preserves_first_occurrence():
+    n1 = Node(protocol=Protocol.VMESS, server="10.0.0.1", port=443, raw_uri="vmess://test", name="first")
+    n2 = Node(protocol=Protocol.VMESS, server="10.0.0.1", port=443, raw_uri="vmess://test", name="second")
+    result = deduplicate_nodes([n1, n2])
+    assert len(result) == 1
+    assert result[0].name == "first"
+
+
+def test_dedup_mixed_protocols():
+    n1 = Node(protocol=Protocol.HTTP, server="10.0.0.1", port=80, raw_uri="http://10.0.0.1:80")
+    n2 = Node(protocol=Protocol.SOCKS5, server="10.0.0.1", port=1080, raw_uri="socks5://10.0.0.1:1080")
+    n3 = Node(protocol=Protocol.VMESS, server="10.0.0.1", port=443, raw_uri="vmess://abc")
+    result = deduplicate_nodes([n1, n2, n3])
+    assert len(result) == 3
+
+
+def test_dedup_large_batch():
+    nodes = [Node(protocol=Protocol.VMESS, server=f"10.0.{i // 256}.{i % 256}", port=443, raw_uri=f"vmess://n{i}") for i in range(500)]
+    result = deduplicate_nodes(nodes)
+    assert len(result) == 500
+
+
+def test_dedup_large_batch_with_duplicates():
+    nodes = []
+    for i in range(250):
+        nodes.append(Node(protocol=Protocol.VMESS, server=f"10.0.0.{i}", port=443, raw_uri=f"vmess://n{i}"))
+        nodes.append(Node(protocol=Protocol.VMESS, server=f"10.0.0.{i}", port=443, raw_uri=f"vmess://n{i}"))
+    result = deduplicate_nodes(nodes)
+    assert len(result) == 250
+
+
+def test_dedup_vmess_different_uri():
+    n1 = Node(protocol=Protocol.VMESS, server="10.0.0.1", port=443, raw_uri="vmess://abc123")
+    n2 = Node(protocol=Protocol.VMESS, server="10.0.0.1", port=443, raw_uri="vmess://def456")
+    result = deduplicate_nodes([n1, n2])
+    assert len(result) == 2

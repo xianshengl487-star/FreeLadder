@@ -3,14 +3,21 @@
 
 使用 customtkinter 构建，包含:
 - 顶部状态栏
-- 操作按钮区
+- 操作按钮区（含停止按钮）
 - 筛选区
-- 节点表格
+- 节点表格（分页）
 - 日志输出区
+
+性能优化:
+- 爬取 + 入库均在后台线程，GUI 主线程不阻塞
+- 表格分页渲染，限制最大渲染行数
+- 进度回调节流，避免消息队列溢出
+- CancelToken 支持取消任务
 """
 
 import os
 import sys
+import time
 import webbrowser
 import subprocess
 from pathlib import Path
@@ -22,6 +29,7 @@ from loguru import logger
 from freeladder.core.config import get_config
 from freeladder.core.database import get_db
 from freeladder.core.models import Node
+from freeladder.core.cancel_token import CancelToken
 from .worker import WorkerThread
 
 
@@ -45,6 +53,14 @@ class FreeLadderApp(ctk.CTk):
         self._worker = WorkerThread()
         self._web_process: Optional[subprocess.Popen] = None
         self._nodes: list[Node] = []
+
+        # 分页状态
+        self._page = 0
+        self._page_size = self._config.gui.table_page_size
+        self._total_count = 0
+
+        # 进度节流
+        self._last_progress_time = 0.0
 
         # 构建 UI
         self._build_ui()
@@ -88,6 +104,9 @@ class FreeLadderApp(ctk.CTk):
         self._lbl_latency = ctk.CTkLabel(status_frame, text="平均延迟: -ms", font=("Arial", 14))
         self._lbl_latency.pack(side="left", padx=15, pady=10)
 
+        self._lbl_page = ctk.CTkLabel(status_frame, text="", font=("Arial", 12), text_color="#999")
+        self._lbl_page.pack(side="left", padx=15, pady=10)
+
         self._lbl_status = ctk.CTkLabel(status_frame, text="就绪", font=("Arial", 12), text_color="#999")
         self._lbl_status.pack(side="right", padx=15, pady=10)
 
@@ -98,6 +117,8 @@ class FreeLadderApp(ctk.CTk):
 
         ctk.CTkButton(btn_frame, text="🚀 一键获取", width=110, command=self._do_fetch,
                       fg_color="#4CAF50", hover_color="#388E3C").pack(side="left", padx=4)
+        ctk.CTkButton(btn_frame, text="⛔ 停止", width=70, command=self._do_cancel,
+                      fg_color="#F44336", hover_color="#D32F2F").pack(side="left", padx=4)
         ctk.CTkButton(btn_frame, text="🔄 更新节点", width=110, command=self._do_update).pack(side="left", padx=4)
         ctk.CTkButton(btn_frame, text="⚡ 测试节点", width=110, command=self._do_test).pack(side="left", padx=4)
         ctk.CTkButton(btn_frame, text="🌐 检测IP", width=80, command=self._do_detect_ip).pack(side="left", padx=4)
@@ -134,6 +155,12 @@ class FreeLadderApp(ctk.CTk):
         self._filter_min_score.pack(side="left", padx=4)
 
         ctk.CTkButton(filter_frame, text="筛选", width=60, command=self._apply_filter).pack(side="left", padx=10)
+
+        # 分页按钮
+        ctk.CTkButton(filter_frame, text="◀ 上一页", width=80, command=self._prev_page).pack(side="right", padx=4)
+        self._lbl_page_info = ctk.CTkLabel(filter_frame, text="第 1 页", font=("Arial", 12))
+        self._lbl_page_info.pack(side="right", padx=8)
+        ctk.CTkButton(filter_frame, text="下一页 ▶", width=80, command=self._next_page).pack(side="right", padx=4)
 
     def _build_node_table(self, parent):
         """节点表格"""
@@ -182,16 +209,45 @@ class FreeLadderApp(ctk.CTk):
         self._lbl_total.configure(text=f"节点总数: {stats['total']}")
         self._lbl_alive.configure(text=f"可用: {stats['alive']}")
         self._lbl_latency.configure(text=f"平均延迟: {stats['avg_latency']}ms")
+        self._total_count = stats["total"]
 
     def _refresh_list(self):
-        """刷新节点列表"""
+        """刷新节点列表（分页加载）"""
         try:
-            self._nodes = self._db.get_all_nodes()
+            max_render = self._config.gui.max_render_rows
+            offset = self._page * self._page_size
+            self._nodes = self._db.get_nodes_page(offset=offset, limit=self._page_size)
+            self._total_count = self._db.get_node_count()
+
             self._render_table(self._nodes)
             self._refresh_status()
-            self._log(f"已加载 {len(self._nodes)} 个节点")
+            self._update_page_info()
+
+            if self._total_count > max_render:
+                self._log(f"已加载第 {self._page + 1} 页（{len(self._nodes)} 条），共 {self._total_count} 个节点。请使用筛选或分页查看更多。")
+            else:
+                self._log(f"已加载 {len(self._nodes)} 个节点")
         except Exception as e:
             self._log(f"刷新失败: {e}")
+
+    def _update_page_info(self):
+        """更新分页信息"""
+        total_pages = max(1, (self._total_count + self._page_size - 1) // self._page_size)
+        self._lbl_page_info.configure(text=f"第 {self._page + 1}/{total_pages} 页")
+        self._lbl_page.configure(text=f"显示 {self._page * self._page_size + 1}-{min((self._page + 1) * self._page_size, self._total_count)} / {self._total_count}")
+
+    def _prev_page(self):
+        """上一页"""
+        if self._page > 0:
+            self._page -= 1
+            self._refresh_list()
+
+    def _next_page(self):
+        """下一页"""
+        total_pages = max(1, (self._total_count + self._page_size - 1) // self._page_size)
+        if self._page < total_pages - 1:
+            self._page += 1
+            self._refresh_list()
 
     def _render_table(self, nodes: list[Node]):
         """渲染节点表格"""
@@ -199,13 +255,17 @@ class FreeLadderApp(ctk.CTk):
         for widget in self._table_scroll.winfo_children():
             widget.destroy()
 
-        for i, node in enumerate(nodes, 1):
+        max_render = self._config.gui.max_render_rows
+        render_nodes = nodes[:max_render]
+
+        for i, node in enumerate(render_nodes, 1):
             row_frame = ctk.CTkFrame(self._table_scroll, fg_color="transparent", height=28)
             row_frame.pack(fill="x", pady=1)
             row_frame.pack_propagate(False)
 
+            global_idx = self._page * self._page_size + i
             values = [
-                str(i),
+                str(global_idx),
                 node.protocol.value,
                 node.server,
                 str(node.port),
@@ -232,52 +292,102 @@ class FreeLadderApp(ctk.CTk):
         pass  # 延迟加载
 
     def _apply_filter(self):
-        """应用筛选"""
-        nodes = self._nodes.copy()
+        """应用筛选（分页）"""
+        max_render = self._config.gui.max_render_rows
 
-        proto = self._filter_protocol.get()
-        if proto != "全部":
-            nodes = [n for n in nodes if n.protocol.value == proto]
+        protocol = self._filter_protocol.get()
+        if protocol == "全部":
+            protocol = None
 
-        country = self._filter_country.get().strip()
-        if country:
-            nodes = [n for n in nodes if country.lower() in (n.country or "").lower()]
-
-        if self._filter_alive.get():
-            nodes = [n for n in nodes if n.alive]
-
+        country = self._filter_country.get().strip() or None
+        alive_only = self._filter_alive.get()
         min_score = self._filter_min_score.get()
-        if min_score > 0:
-            nodes = [n for n in nodes if n.score >= min_score]
 
-        self._render_table(nodes)
-        self._log(f"筛选结果: {len(nodes)} 个节点")
+        self._total_count = self._db.get_node_count(
+            protocol=protocol, country=country,
+            alive_only=alive_only, min_score=min_score,
+        )
+        self._nodes = self._db.get_nodes_page(
+            offset=0, limit=self._page_size,
+            protocol=protocol, country=country,
+            alive_only=alive_only, min_score=min_score,
+        )
+        self._page = 0
+        self._render_table(self._nodes)
+        self._update_page_info()
+
+        if self._total_count > max_render:
+            self._log(f"筛选结果: {self._total_count} 个节点（显示前 {len(self._nodes)} 个）")
+        else:
+            self._log(f"筛选结果: {len(self._nodes)} 个节点")
+
+    def _throttled_log(self, msg: str):
+        """节流日志：间隔不低于 progress_update_interval_ms"""
+        now = time.time()
+        interval = self._config.gui.progress_update_interval_ms / 1000.0
+        if now - self._last_progress_time < interval:
+            return
+        self._last_progress_time = now
+        self.after(0, lambda m=msg: self._log(m))
 
     # ── 后台任务 ──
 
+    def _fetch_builtin_and_save(self, on_progress=None, cancel_token=None):
+        """后台线程: 爬取 + 入库（不经过 GUI 主线程）"""
+        from freeladder.scraper.scraper import scrape_builtin
+
+        nodes = scrape_builtin(on_progress=on_progress, cancel_token=cancel_token)
+        if cancel_token and cancel_token.cancelled:
+            return {"total": 0, "added": 0, "cancelled": True}
+
+        added = self._db.upsert_nodes_bulk(
+            nodes, batch_size=500,
+            on_progress=on_progress,
+            cancel_token=cancel_token,
+        )
+        return {"total": len(nodes), "added": added, "cancelled": False}
+
     def _do_fetch(self):
-        """一键从内置免费源获取节点"""
+        """一键从内置免费源获取节点（爬取+入库均在后台）"""
         if self._worker.is_running:
             self._log("⚠ 已有任务在运行")
             return
 
+        # 检查内置源是否启用
+        if not self._config.scraper.builtin_enabled:
+            self._log("⚠ 内置源已禁用，请在 config.yaml 中设置 builtin_enabled: true")
+            return
+
         self._set_status("获取中...")
-        self._log("🚀 从内置免费源获取节点...")
+        self._log("🚀 从内置免费源获取节点（后台爬取 + 入库）...")
+        self._last_progress_time = 0
 
         def _on_progress(current, total, msg):
-            self.after(0, lambda: self._log(f"  [{current}/{total}] {msg}"))
+            self._throttled_log(f"  [{current}/{total}] {msg}")
 
         def _on_done(result):
-            nodes = result if result else []
             def _update():
-                if nodes:
-                    self._db.upsert_nodes(nodes)
+                if result and not result.get("cancelled"):
+                    self._log(f"✓ 获取完成: 共 {result['total']} 个节点，新增 {result['added']} 个")
+                elif result and result.get("cancelled"):
+                    self._log("⚠ 获取已取消")
+                else:
+                    self._log("⚠ 获取失败")
+                self._page = 0
                 self._refresh_list()
-                self._set_status(f"获取完成: {len(nodes)} 个节点")
+                self._set_status("就绪")
             self.after(0, _update)
 
-        from freeladder.scraper.scraper import scrape_builtin
-        self._worker.start(scrape_builtin, on_progress=_on_progress, on_done=_on_done)
+        self._worker.start(self._fetch_builtin_and_save, on_progress=_on_progress, on_done=_on_done)
+
+    def _do_cancel(self):
+        """停止当前任务"""
+        if not self._worker.is_running:
+            self._log("⚠ 没有正在运行的任务")
+            return
+        self._worker.stop()
+        self._log("⛔ 已请求停止当前任务")
+        self._set_status("正在停止...")
 
     def _do_update(self):
         """爬取更新"""
@@ -287,15 +397,17 @@ class FreeLadderApp(ctk.CTk):
 
         self._set_status("更新中...")
         self._log("开始更新节点...")
+        self._last_progress_time = 0
 
         def _on_progress(current, total, msg):
-            self.after(0, lambda: self._log(f"  [{current}/{total}] {msg}"))
+            self._throttled_log(f"  [{current}/{total}] {msg}")
 
         def _on_done(result):
             nodes = result if result else []
             def _update():
                 if nodes:
                     self._db.upsert_nodes(nodes)
+                self._page = 0
                 self._refresh_list()
                 self._set_status("更新完成")
             self.after(0, _update)
@@ -328,9 +440,10 @@ class FreeLadderApp(ctk.CTk):
 
         self._set_status("测试中...")
         self._log("开始测试节点...")
+        self._last_progress_time = 0
 
         def _on_progress(current, total, msg):
-            self.after(0, lambda: self._log(f"  [{current}/{total}] {msg}"))
+            self._throttled_log(f"  [{current}/{total}] {msg}")
 
         def _on_done(result):
             def _update():
@@ -404,6 +517,8 @@ class FreeLadderApp(ctk.CTk):
 
     def on_closing(self):
         """关闭窗口时清理"""
+        if self._worker.is_running:
+            self._worker.stop()
         if self._web_process:
             self._web_process.terminate()
         self._db.close()

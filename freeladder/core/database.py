@@ -273,6 +273,156 @@ class Database:
         self._conn.commit()
         return count
 
+    def upsert_nodes_bulk(
+        self,
+        nodes: list[Node],
+        batch_size: int = 500,
+        on_progress=None,
+        cancel_token=None,
+    ) -> int:
+        """高性能批量插入/更新节点
+
+        一次性查询已有 node_key 集合，批量事务写入。
+        每 batch_size 条 commit 一次，支持 cancel_token 和进度回调。
+
+        Returns:
+            新增节点数量
+        """
+        import json as json_mod
+
+        if not nodes:
+            return 0
+
+        # 一次性获取所有已有 key
+        existing_keys = {
+            row[0] for row in self._conn.execute("SELECT node_key FROM nodes").fetchall()
+        }
+
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+        added_count = 0
+        total = len(nodes)
+
+        for batch_start in range(0, total, batch_size):
+            if cancel_token and cancel_token.cancelled:
+                break
+
+            batch = nodes[batch_start:batch_start + batch_size]
+
+            self._conn.execute("BEGIN")
+            try:
+                for node in batch:
+                    if cancel_token and cancel_token.cancelled:
+                        break
+
+                    if not node.created_at:
+                        node.created_at = now
+                    node.updated_at = now
+
+                    clash_proxy_json = json_mod.dumps(node.clash_proxy) if node.clash_proxy else None
+
+                    is_new = node.node_key not in existing_keys
+
+                    if is_new:
+                        self._conn.execute("""
+                            INSERT INTO nodes (
+                                node_key, raw_hash, protocol, server, port, name,
+                                raw_uri, clash_proxy, country, alive, latency, avg_latency,
+                                score, signal, test_mode, fail_count, success_count,
+                                last_error, source, created_at, updated_at, last_checked
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            node.node_key, node.raw_hash, node.protocol.value, node.server,
+                            node.port, node.name, node.raw_uri, clash_proxy_json,
+                            node.country, int(node.alive), node.latency, node.avg_latency,
+                            node.score, node.signal, node.test_mode, node.fail_count,
+                            node.success_count, node.last_error, node.source,
+                            node.created_at, node.updated_at, node.last_checked
+                        ))
+                        existing_keys.add(node.node_key)
+                        added_count += 1
+                    else:
+                        self._conn.execute("""
+                            UPDATE nodes SET
+                                raw_hash = ?, protocol = ?, server = ?, port = ?, name = ?,
+                                raw_uri = ?, clash_proxy = ?, country = ?, source = ?,
+                                updated_at = ?
+                            WHERE node_key = ?
+                        """, (
+                            node.raw_hash, node.protocol.value, node.server, node.port,
+                            node.name, node.raw_uri, clash_proxy_json, node.country,
+                            node.source, node.updated_at, node.node_key
+                        ))
+                self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+
+            if on_progress:
+                done = min(batch_start + batch_size, total)
+                on_progress(done, total, f"已入库 {done}/{total}")
+
+        logger.info(f"批量入库: 新增 {added_count} / 总计 {total} 个节点")
+        return added_count
+
+    def get_nodes_page(
+        self,
+        offset: int = 0,
+        limit: int = 200,
+        protocol: Optional[str] = None,
+        country: Optional[str] = None,
+        alive_only: bool = False,
+        min_score: float = 0,
+    ) -> list[Node]:
+        """分页获取节点"""
+        conditions = []
+        params = []
+
+        if protocol:
+            conditions.append("protocol = ?")
+            params.append(protocol)
+        if country:
+            conditions.append("LOWER(country) LIKE ?")
+            params.append(f"%{country.lower()}%")
+        if alive_only:
+            conditions.append("alive = 1")
+        if min_score > 0:
+            conditions.append("score >= ?")
+            params.append(min_score)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        sql = f"SELECT * FROM nodes {where} ORDER BY score DESC, id DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        rows = self._conn.execute(sql, params).fetchall()
+        return [self._node_from_row(r) for r in rows]
+
+    def get_node_count(
+        self,
+        protocol: Optional[str] = None,
+        country: Optional[str] = None,
+        alive_only: bool = False,
+        min_score: float = 0,
+    ) -> int:
+        """获取节点总数（带筛选条件）"""
+        conditions = []
+        params = []
+
+        if protocol:
+            conditions.append("protocol = ?")
+            params.append(protocol)
+        if country:
+            conditions.append("LOWER(country) LIKE ?")
+            params.append(f"%{country.lower()}%")
+        if alive_only:
+            conditions.append("alive = 1")
+        if min_score > 0:
+            conditions.append("score >= ?")
+            params.append(min_score)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        sql = f"SELECT COUNT(*) FROM nodes {where}"
+        return self._conn.execute(sql, params).fetchone()[0]
+
     def get_node_by_key(self, node_key: str) -> Optional[Node]:
         """按 node_key 查询节点"""
         row = self._conn.execute(

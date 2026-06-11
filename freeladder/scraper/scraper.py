@@ -3,9 +3,11 @@
 
 支持:
 - scrape_all():   从用户配置的订阅源爬取
-- scrape_builtin(): 从内置免费订阅源爬取
+- scrape_builtin(): 从内置免费订阅源爬取（并发 + 取消 + 限流）
 """
 
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Optional
 
 import httpx
@@ -20,6 +22,9 @@ from .sources import (
     decode_subscription_content,
     extract_nodes_from_clash_yaml,
 )
+
+# 失败源缓存: {url: last_failure_time}
+_failure_cache: dict[str, float] = {}
 
 
 def _fetch_url(url: str, timeout: int = 15) -> Optional[str]:
@@ -131,34 +136,120 @@ def scrape_all(
     return all_nodes
 
 
+def _is_source_failed(url: str, cache_minutes: int) -> bool:
+    """检查源是否在失败缓存中"""
+    if url not in _failure_cache:
+        return False
+    elapsed = time.time() - _failure_cache[url]
+    return elapsed < cache_minutes * 60
+
+
+def _mark_source_failed(url: str):
+    """标记源为失败"""
+    _failure_cache[url] = time.time()
+
+
 def scrape_builtin(
     on_progress: Optional[Callable[[int, int, str], None]] = None,
+    cancel_token=None,
+    max_total_nodes: Optional[int] = None,
 ) -> list[Node]:
-    """从内置免费订阅源爬取节点
+    """从内置免费订阅源并发爬取节点
 
-    使用 freeladder.core.builtin_sources 中预置的公开免费代理源，
-    无需用户手动配置即可获取节点。
+    特性:
+    - ThreadPoolExecutor 并发爬取（受 max_workers 控制）
+    - cancel_token 支持取消
+    - max_total_nodes 限制总节点数
+    - max_nodes_per_source 限制单源节点数
+    - 失败源缓存避免频繁重试
+    - 节流进度回调
+
+    Args:
+        on_progress: 进度回调 (current, total, message)
+        cancel_token: 取消令牌
+        max_total_nodes: 最大总节点数（None 则使用配置值）
     """
     from freeladder.core.builtin_sources import BUILTIN_SOURCES
+
+    config = get_config()
+    scraper_cfg = config.scraper
+
+    if not scraper_cfg.builtin_enabled:
+        logger.warning("内置源已禁用 (builtin_enabled=false)")
+        return []
 
     sources = [s["url"] for s in BUILTIN_SOURCES]
     if not sources:
         logger.warning("没有内置订阅源")
         return []
 
-    config = get_config()
+    if max_total_nodes is None:
+        max_total_nodes = scraper_cfg.max_total_nodes
+
+    timeout = scraper_cfg.request_timeout
+    max_workers = min(scraper_cfg.max_workers, len(sources))
+    cache_minutes = scraper_cfg.source_failure_cache_minutes
+    max_per_source = scraper_cfg.max_nodes_per_source
+
+    # 过滤失败缓存中的源
+    active_sources = [u for u in sources if not _is_source_failed(u, cache_minutes)]
+    skipped = len(sources) - len(active_sources)
+    if skipped:
+        logger.info(f"跳过 {skipped} 个近期失败的源")
+
+    if not active_sources:
+        logger.warning("所有内置源均在失败缓存中")
+        return []
+
     all_nodes: list[Node] = []
-    total = len(sources)
+    total = len(active_sources)
 
-    for i, url in enumerate(sources, 1):
-        if on_progress:
-            on_progress(i, total, f"正在获取: {url[:60]}...")
-
+    def _fetch_one(url: str) -> tuple[str, list[Node]]:
+        """爬取单个源（线程池中执行）"""
+        if cancel_token and cancel_token.cancelled:
+            return url, []
         try:
-            nodes = scrape_source(url, config.scraper.request_timeout)
-            all_nodes.extend(nodes)
+            nodes = scrape_source(url, timeout)
+            # 限制单源节点数
+            if len(nodes) > max_per_source:
+                nodes = nodes[:max_per_source]
+            return url, nodes
         except Exception as e:
             logger.debug(f"内置源爬取失败 {url}: {e}")
+            _mark_source_failed(url)
+            return url, []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_fetch_one, u): u for u in active_sources}
+        done_count = 0
+
+        for future in as_completed(futures):
+            if cancel_token and cancel_token.cancelled:
+                # 取消剩余任务
+                for f in futures:
+                    f.cancel()
+                break
+
+            url, nodes = future.result()
+            done_count += 1
+
+            if nodes:
+                all_nodes.extend(nodes)
+
+            if on_progress:
+                on_progress(done_count, total, f"已完成 {done_count}/{total} 个源")
+
+            # 总量限制
+            if len(all_nodes) >= max_total_nodes:
+                logger.info(f"达到总节点上限 {max_total_nodes}，停止爬取")
+                # 取消剩余任务
+                for f in futures:
+                    f.cancel()
+                break
+
+    # 截断到上限
+    if len(all_nodes) > max_total_nodes:
+        all_nodes = all_nodes[:max_total_nodes]
 
     # 去重
     before = len(all_nodes)
