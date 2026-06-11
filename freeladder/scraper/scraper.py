@@ -1,7 +1,6 @@
 # path: freeladder/scraper/scraper.py
 """爬取模块 - 从订阅源获取节点"""
 
-import base64
 from typing import Callable, Optional
 
 import httpx
@@ -14,7 +13,6 @@ from .parser import parse_nodes_from_text
 from .sources import (
     load_sources,
     decode_subscription_content,
-    extract_uris_from_yaml,
     extract_nodes_from_clash_yaml,
 )
 

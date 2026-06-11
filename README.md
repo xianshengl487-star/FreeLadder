@@ -174,6 +174,47 @@ python tools/build_exe.py
 
 打包后请手动将 Mihomo 二进制文件放入 `dist/FreeLadder/bin/` 目录。
 
+## 开发与测试
+
+### 安装开发依赖
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+### 语法检查
+
+```bash
+python -m compileall freeladder main.py run_gui.py run_web.py
+```
+
+### 单元测试
+
+```bash
+pytest -q
+```
+
+### Smoke Test
+
+```bash
+python tools/smoke_test.py
+```
+
+### 基础 CLI 验收
+
+```bash
+python main.py init
+python main.py stats
+python main.py update
+python main.py test --new
+python main.py export --all
+```
+
+> - 没有配置 `scraper.sources` 时，`update` 提示未配置订阅源是正常行为。
+> - 没有 Mihomo 时，高级协议会根据配置走 TCP fallback。
+> - Mihomo 二进制不要提交到仓库。
+> - `config.yaml` 不要提交，应该基于 `config.example.yaml` 自行创建。
+
 ## 常见问题
 
 ### 找不到 Mihomo
@@ -230,7 +271,8 @@ FreeLadder/
 ├── bin/               # Mihomo 二进制文件目录
 ├── data/              # SQLite 数据库存储
 ├── exports/           # 导出文件目录
-├── tools/             # 打包脚本
+├── tests/             # 单元测试
+├── tools/             # 打包脚本、smoke test
 ├── main.py            # CLI 入口
 ├── run_gui.py         # GUI 启动入口
 ├── run_web.py         # Web API 启动入口

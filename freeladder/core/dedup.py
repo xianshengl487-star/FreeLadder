@@ -2,7 +2,6 @@
 """节点去重模块"""
 
 import hashlib
-from typing import Optional
 
 from .models import Node
 
