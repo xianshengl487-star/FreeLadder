@@ -16,8 +16,9 @@ from .source_store import SourceStore
 from .repo_scanner import RepoScanner
 from .link_extractor import LinkExtractor
 
-# 默认 seed repos
+# 默认 seed repos（覆盖多个地区/语言的开源社区）
 SEED_GITHUB_REPOS = [
+    # ── 综合聚合 ──
     "mfuu/v2ray",
     "anaer/Sub",
     "ermaozi/get_subscribe",
@@ -26,6 +27,32 @@ SEED_GITHUB_REPOS = [
     "xiaoji235/airport-free",
     "mermeroo/V2RAY-CLASH-BASE64-Subscription.Links",
     "coldwater-10/V2RAY-and-CLASH-Subscription-Links",
+    "peasoft/NoMoreWalls",
+    "mahdibland/V2RayAggregator",
+    "aiboboxx/v2rayfree",
+    "OPEN-VPN/0",
+    "ripaojiedian/freenode",
+    "ts-sf/flying",
+    "xrayfree/v2rayfree",
+    # ── 中东/土耳其/波斯语 ──
+    "MrMohewa/Nodes",
+    "HosseinKarami27/Bestfree",
+    "sadevans/SUB",
+    "AliMohaMadi/Naproxy",
+    "Epodonios/v2ray-configs",
+    "yebekhe/TelegramV2rayCollector",
+    # ── 拉丁美洲/西班牙语 ──
+    "AresS31/v2ray-free",
+    "RiriIsmail/sub",
+    # ── 欧洲/多语言 ──
+    "LalatinaHub/Inventory",
+    "barry-far/V2ray-Configs",
+    "MrMohebi/xray-proxy-grabber-telegram",
+    "Leon406/SubCrawler",
+    # ── 多协议聚合 ──
+    "freefq/free",
+    "tbbatbb/Proxy",
+    "soroushmirzaei/telegram-configs-collector",
 ]
 
 # 候选文件名

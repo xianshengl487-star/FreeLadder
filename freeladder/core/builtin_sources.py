@@ -81,7 +81,6 @@ BUILTIN_SOURCES: list[dict] = [
         "url": "https://raw.githubusercontent.com/yebekhe/TelegramV2rayCollector/main/sub/clash/vless",
         "format": "clash",
     },
-    # (已移除无法访问的源)
     {
         "name": "soroushmirzaei-telegram-configs",
         "url": "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/clash",
@@ -136,6 +135,111 @@ BUILTIN_SOURCES: list[dict] = [
         "name": "clashconfig",
         "url": "https://raw.githubusercontent.com/itsyebekhe/HiN-VPN/main/subscription/normal/vless",
         "format": "base64",
+    },
+    # ── 中东/土耳其/印度 ──
+    {
+        "name": "MrMohewa-Nodes",
+        "url": "https://raw.githubusercontent.com/MrMohewa/Nodes/main/Clash",
+        "format": "clash",
+    },
+    {
+        "name": "MrMohewa-Nodes-Base64",
+        "url": "https://raw.githubusercontent.com/MrMohewa/Nodes/main/All",
+        "format": "base64",
+    },
+    {
+        "name": "HosseinKarami27-Bestfree",
+        "url": "https://raw.githubusercontent.com/HosseinKarami27/Bestfree/main/Clash",
+        "format": "clash",
+    },
+    {
+        "name": "HosseinKarami27-Bestfree-Base64",
+        "url": "https://raw.githubusercontent.com/HosseinKarami27/Bestfree/main/Vless",
+        "format": "base64",
+    },
+    {
+        "name": "sadevans-SUB",
+        "url": "https://raw.githubusercontent.com/sadevans/SUB/main/sub-clash-yaml",
+        "format": "clash",
+    },
+    {
+        "name": "AliMohaMadi-Naproxy",
+        "url": "https://raw.githubusercontent.com/AliMohaMadi/Naproxy/main/All_Configs_Sub.txt",
+        "format": "base64",
+    },
+    {
+        "name": "Epodonios-v2ray-configs",
+        "url": "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt",
+        "format": "base64",
+    },
+    # ── 拉丁美洲/西班牙语 ──
+    {
+        "name": "AresS31-v2ray-free",
+        "url": "https://raw.githubusercontent.com/AresS31/v2ray-free/main/clash.yaml",
+        "format": "clash",
+    },
+    {
+        "name": "RiriIsmail-sub",
+        "url": "https://raw.githubusercontent.com/RiriIsmail/sub/main/clash",
+        "format": "clash",
+    },
+    # ── 欧洲/多语言 ──
+    {
+        "name": "LalatinaHub-v2ray",
+        "url": "https://raw.githubusercontent.com/LalatinaHub/Inventory/main/Merge/clash.yaml",
+        "format": "clash",
+    },
+    {
+        "name": "LalatinaHub-v2ray-base64",
+        "url": "https://raw.githubusercontent.com/LalatinaHub/Inventory/main/Merge/V2RAY.txt",
+        "format": "base64",
+    },
+    {
+        "name": "barry-far-V2ray-Configs",
+        "url": "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/All_Configs_Sub.txt",
+        "format": "base64",
+    },
+    {
+        "name": "MrMohebi-v2ray-rotation",
+        "url": "https://raw.githubusercontent.com/MrMohebi/xray-proxy-grabber-telegram/master/best_configs/all_configs.yml",
+        "format": "clash",
+    },
+    # ── 多协议聚合 ──
+    {
+        "name": "vxiaov-free_proxies",
+        "url": "https://raw.githubusercontent.com/vxiaov/free_proxies/main/clash/clash.provider.yaml",
+        "format": "clash",
+    },
+    {
+        "name": "xiaoji235-airport-free",
+        "url": "https://raw.githubusercontent.com/xiaoji235/airport-free/main/clash",
+        "format": "clash",
+    },
+    {
+        "name": "coldwater-10-V2RAY-CLASH",
+        "url": "https://raw.githubusercontent.com/coldwater-10/V2RAY-and-CLASH-Subscription-Links/main/Clash",
+        "format": "clash",
+    },
+    {
+        "name": "mermeroo-V2RAY-CLASH-BASE64",
+        "url": "https://raw.githubusercontent.com/mermeroo/V2RAY-CLASH-BASE64-Subscription.Links/main/Clash",
+        "format": "clash",
+    },
+    # ── jsDelivr CDN 镜像 ──
+    {
+        "name": "jsDelivr-learnhard",
+        "url": "https://cdn.jsdelivr.net/gh/vxiaov/free_proxies@main/clash/clash.provider.yaml",
+        "format": "clash",
+    },
+    {
+        "name": "jsDelivr-Pawdroid",
+        "url": "https://cdn.jsdelivr.net/gh/Pawdroid/Free-servers@main/sub",
+        "format": "base64",
+    },
+    {
+        "name": "jsDelivr-mfuu",
+        "url": "https://cdn.jsdelivr.net/gh/mfuu/v2ray@master/clash.yaml",
+        "format": "clash",
     },
 ]
 

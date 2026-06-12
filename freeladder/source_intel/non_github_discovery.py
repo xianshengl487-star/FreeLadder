@@ -73,6 +73,27 @@ SEED_PUBLIC_PAGES: list[dict] = [
         "enabled": False,
         "note": "Pawdroid Free-servers 的公开镜像订阅入口",
     },
+    {
+        "name": "jsDelivr-mfuu",
+        "url": "https://cdn.jsdelivr.net/gh/mfuu/v2ray@master/clash.yaml",
+        "kind": "jsdelivr",
+        "enabled": False,
+        "note": "jsDelivr CDN 镜像，mfuu v2ray Clash 格式",
+    },
+    {
+        "name": "jsDelivr-Pawdroid",
+        "url": "https://cdn.jsdelivr.net/gh/Pawdroid/Free-servers@main/sub",
+        "kind": "jsdelivr",
+        "enabled": False,
+        "note": "jsDelivr CDN 镜像，Pawdroid Free-servers Base64",
+    },
+    {
+        "name": "ghproxy-mfuu",
+        "url": "https://ghproxy.com/https://raw.githubusercontent.com/mfuu/v2ray/master/clash.yaml",
+        "kind": "direct",
+        "enabled": False,
+        "note": "ghproxy GitHub 代理镜像",
+    },
 ]
 
 
