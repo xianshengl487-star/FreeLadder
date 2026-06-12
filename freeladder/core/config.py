@@ -123,6 +123,32 @@ class SourceIntelConfig(BaseModel):
     require_user_confirm_for_github_account_watch: bool = True
 
 
+class PerformanceConfig(BaseModel):
+    """多线程任务流水线配置"""
+    enabled: bool = True
+
+    fetch_workers: int = 8
+    validate_workers: int = 8
+    test_workers: int = 32
+    mihomo_test_workers: int = 4
+
+    db_batch_size: int = 500
+    db_queue_max_size: int = 3000
+
+    max_pending_futures: int = 200
+    max_total_nodes_per_task: int = 20000
+    max_nodes_per_source: int = 1000
+
+    progress_update_interval_ms: int = 500
+    log_update_interval_ms: int = 500
+
+    task_timeout_seconds: int = 1800
+    source_timeout_seconds: int = 15
+    test_timeout_seconds: int = 8
+
+    enable_db_wal: bool = True
+
+
 class Config(BaseModel):
     app: AppConfig = Field(default_factory=AppConfig)
     scraper: ScraperConfig = Field(default_factory=ScraperConfig)
@@ -132,6 +158,7 @@ class Config(BaseModel):
     gui: GUIConfig = Field(default_factory=GUIConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
     source_intel: SourceIntelConfig = Field(default_factory=SourceIntelConfig)
+    performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
 
     @property
     def data_path(self) -> Path:

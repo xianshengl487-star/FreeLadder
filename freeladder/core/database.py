@@ -60,10 +60,25 @@ class Database:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA foreign_keys=ON")
+        self._apply_pragmas()
         self._init_tables()
         logger.info(f"数据库已打开: {self._db_path}")
+
+    def _apply_pragmas(self):
+        """应用性能优化 PRAGMA"""
+        try:
+            from freeladder.core.config import get_config
+            cfg = get_config()
+            enable_wal = cfg.performance.enable_db_wal
+        except Exception:
+            enable_wal = True
+
+        if enable_wal:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA temp_store=MEMORY")
+        self._conn.execute("PRAGMA busy_timeout=5000")
+        self._conn.execute("PRAGMA foreign_keys=ON")
 
     def _init_tables(self):
         """初始化表结构"""
@@ -95,6 +110,7 @@ class Database:
             )
         """)
         self._migrate()
+        self._create_indexes()
         self._conn.commit()
 
     def _migrate(self):
@@ -183,6 +199,22 @@ class Database:
         if migrated > 0:
             self._conn.commit()
             logger.info(f"数据库迁移: 重算了 {migrated} 个高级协议节点的 node_key")
+
+    def _create_indexes(self):
+        """创建性能索引"""
+        indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_nodes_node_key ON nodes(node_key)",
+            "CREATE INDEX IF NOT EXISTS idx_nodes_alive ON nodes(alive)",
+            "CREATE INDEX IF NOT EXISTS idx_nodes_score ON nodes(score)",
+            "CREATE INDEX IF NOT EXISTS idx_nodes_protocol ON nodes(protocol)",
+            "CREATE INDEX IF NOT EXISTS idx_nodes_country ON nodes(country)",
+            "CREATE INDEX IF NOT EXISTS idx_nodes_last_checked ON nodes(last_checked)",
+        ]
+        for sql in indexes:
+            try:
+                self._conn.execute(sql)
+            except sqlite3.OperationalError:
+                pass
 
     def _node_from_row(self, row: sqlite3.Row) -> Node:
         """从数据库行转换为 Node 对象"""

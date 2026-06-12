@@ -128,3 +128,28 @@ source_intel:
   # 安全确认
   require_user_confirm_for_new_sources: true
   require_user_confirm_for_github_account_watch: true
+
+# 性能配置
+performance:
+  enabled: true
+
+  fetch_workers: 8
+  validate_workers: 8
+  test_workers: 32
+  mihomo_test_workers: 4
+
+  db_batch_size: 500
+  db_queue_max_size: 3000
+
+  max_pending_futures: 200
+  max_total_nodes_per_task: 20000
+  max_nodes_per_source: 1000
+
+  progress_update_interval_ms: 500
+  log_update_interval_ms: 500
+
+  task_timeout_seconds: 1800
+  source_timeout_seconds: 15
+  test_timeout_seconds: 8
+
+  enable_db_wal: true

@@ -30,6 +30,7 @@ from freeladder.core.config import get_config
 from freeladder.core.database import get_db
 from freeladder.core.models import Node
 from freeladder.core.cancel_token import CancelToken
+from freeladder.tasks import TaskManager
 from .worker import WorkerThread
 
 
@@ -51,6 +52,7 @@ class FreeLadderApp(ctk.CTk):
         self._config = get_config()
         self._db = get_db()
         self._worker = WorkerThread()
+        self._task_manager = TaskManager()
         self._web_process: Optional[subprocess.Popen] = None
         self._nodes: list[Node] = []
 
@@ -330,89 +332,90 @@ class FreeLadderApp(ctk.CTk):
         self._last_progress_time = now
         self.after(0, lambda m=msg: self._log(m))
 
-    # ── 后台任务 ──
+    # ── 后台任务（Pipeline 版本）──
 
-    def _fetch_builtin_and_save(self, on_progress=None, cancel_token=None):
-        """后台线程: 爬取 + 入库（不经过 GUI 主线程）"""
-        from freeladder.scraper.scraper import scrape_builtin
-
-        nodes = scrape_builtin(on_progress=on_progress, cancel_token=cancel_token)
-        if cancel_token and cancel_token.cancelled:
-            return {"total": 0, "added": 0, "cancelled": True}
-
-        added = self._db.upsert_nodes_bulk(
-            nodes, batch_size=500,
-            on_progress=on_progress,
-            cancel_token=cancel_token,
-        )
-        return {"total": len(nodes), "added": added, "cancelled": False}
+    def _on_pipeline_progress(self, current, total, msg):
+        """Pipeline 进度回调"""
+        self._throttled_log(f"  [{current}/{total}] {msg}")
 
     def _do_fetch(self):
-        """一键从内置免费源获取节点（爬取+入库均在后台）"""
-        if self._worker.is_running:
+        """一键获取：走 FetchPipeline"""
+        if self._task_manager.has_running_task():
             self._log("⚠ 已有任务在运行")
             return
 
         self._set_status("获取中...")
-        self._log("🚀 从启用的源获取节点（后台爬取 + 入库）...")
-        self._last_progress_time = 0
-
-        def _on_progress(current, total, msg):
-            self._throttled_log(f"  [{current}/{total}] {msg}")
+        self._log("🚀 从启用的源获取节点（Pipeline 并发 + DBWriter 入库）...")
 
         def _on_done(result):
             def _update():
-                if result and not result.get("cancelled"):
-                    self._log(f"✓ 获取完成: 共 {result['total']} 个节点，新增 {result['added']} 个")
-                elif result and result.get("cancelled"):
+                if hasattr(result, 'ok') and result.ok:
+                    data = result.data
+                    self._log(
+                        f"✓ 获取完成: {data.get('sources_done', 0)} 源, "
+                        f"原始 {data.get('raw_nodes', 0)} 节点, "
+                        f"提交 {data.get('submitted_nodes', 0)}, "
+                        f"新增 {data.get('inserted', 0)}"
+                    )
+                elif hasattr(result, 'message') and result.message == "cancelled":
                     self._log("⚠ 获取已取消")
                 else:
-                    self._log("⚠ 获取失败")
+                    msg = getattr(result, 'message', str(result)) if result else "未知错误"
+                    self._log(f"⚠ 获取失败: {msg}")
                 self._page = 0
                 self._refresh_list()
                 self._set_status("就绪")
             self.after(0, _update)
 
-        self._worker.start(self._fetch_builtin_and_save, on_progress=_on_progress, on_done=_on_done)
+        from freeladder.tasks.fetch_pipeline import run_fetch_pipeline
+        self._task_manager.start_task(
+            "一键获取",
+            run_fetch_pipeline,
+            on_progress=self._on_pipeline_progress,
+            on_done=_on_done,
+            db=self._db,
+        )
 
     def _do_cancel(self):
         """停止当前任务"""
-        if not self._worker.is_running:
+        if self._task_manager.cancel_current():
+            self._log("⛔ 已请求停止当前任务")
+            self._set_status("正在停止...")
+        elif self._worker.is_running:
+            self._worker.stop()
+            self._log("⛔ 已请求停止当前任务")
+            self._set_status("正在停止...")
+        else:
             self._log("⚠ 没有正在运行的任务")
-            return
-        self._worker.stop()
-        self._log("⛔ 已请求停止当前任务")
-        self._set_status("正在停止...")
 
     def _do_update(self):
         """爬取更新"""
-        if self._worker.is_running:
+        if self._task_manager.has_running_task():
             self._log("⚠ 已有任务在运行")
             return
 
         self._set_status("更新中...")
         self._log("开始更新节点...")
-        self._last_progress_time = 0
-
-        def _on_progress(current, total, msg):
-            self._throttled_log(f"  [{current}/{total}] {msg}")
 
         def _on_done(result):
-            nodes = result if result else []
             def _update():
-                if nodes:
-                    self._db.upsert_nodes(nodes)
+                if result and not result.get("cancelled"):
+                    self._log(f"✓ 更新完成: 共 {result.get('total', 0)} 个节点")
+                elif result and result.get("cancelled"):
+                    self._log("⚠ 更新已取消")
+                else:
+                    self._log("⚠ 更新失败")
                 self._page = 0
                 self._refresh_list()
-                self._set_status("更新完成")
+                self._set_status("就绪")
             self.after(0, _update)
 
         from freeladder.scraper import scrape_all
-        self._worker.start(scrape_all, on_progress=_on_progress, on_done=_on_done)
+        self._worker.start(scrape_all, on_progress=self._on_pipeline_progress, on_done=_on_done)
 
     def _do_detect_ip(self):
         """检测公网 IP"""
-        if self._worker.is_running:
+        if self._task_manager.has_running_task():
             self._log("⚠ 已有任务在运行")
             return
 
@@ -428,51 +431,94 @@ class FreeLadderApp(ctk.CTk):
         self._worker.start(detect_public_ip, on_done=_on_done)
 
     def _do_test(self):
-        """测试节点"""
-        if self._worker.is_running:
+        """测试节点：走 TestPipeline"""
+        if self._task_manager.has_running_task():
             self._log("⚠ 已有任务在运行")
             return
 
         self._set_status("测试中...")
-        self._log("开始测试节点...")
-        self._last_progress_time = 0
-
-        def _on_progress(current, total, msg):
-            self._throttled_log(f"  [{current}/{total}] {msg}")
+        self._log("开始测试节点（Pipeline 并发）...")
 
         def _on_done(result):
             def _update():
+                if hasattr(result, 'ok') and result.ok:
+                    data = result.data
+                    self._log(
+                        f"✓ 测试完成: 测试 {data.get('tested', 0)}, "
+                        f"可用 {data.get('alive', 0)}, 失败 {data.get('dead', 0)}"
+                    )
+                elif hasattr(result, 'message') and result.message == "cancelled":
+                    self._log("⚠ 测试已取消")
+                else:
+                    self._log("⚠ 测试失败")
+                self._page = 0
                 self._refresh_list()
-                self._set_status("测试完成")
+                self._set_status("就绪")
             self.after(0, _update)
 
-        from freeladder.tester import TestService
-        service = TestService(self._db)
-        self._worker.start(service.test_all, on_progress=_on_progress, on_done=_on_done)
+        from freeladder.tasks.test_pipeline import run_test_pipeline
+        self._task_manager.start_task(
+            "测试节点",
+            run_test_pipeline,
+            on_progress=self._on_pipeline_progress,
+            on_done=_on_done,
+            db=self._db,
+            mode="all",
+        )
 
     def _do_export_clash(self):
-        """导出 Clash 配置"""
-        try:
-            from freeladder.exporter import export_clash_yaml
-            path = export_clash_yaml(db=self._db)
-            if path:
-                self._log(f"✓ Clash 配置已导出: {path}")
-            else:
-                self._log("⚠ 导出失败：没有可用节点")
-        except Exception as e:
-            self._log(f"✗ 导出失败: {e}")
+        """导出 Clash 配置：走 ExportPipeline"""
+        if self._task_manager.has_running_task():
+            self._log("⚠ 已有任务在运行")
+            return
+
+        def _on_done(result):
+            def _update():
+                if hasattr(result, 'ok') and result.ok:
+                    path = result.data.get("file_path", "")
+                    if path:
+                        self._log(f"✓ Clash 配置已导出: {path}")
+                    else:
+                        self._log("⚠ 导出失败：没有可用节点")
+                else:
+                    self._log("⚠ 导出失败")
+            self.after(0, _update)
+
+        from freeladder.tasks.export_pipeline import run_export_pipeline
+        self._task_manager.start_task(
+            "导出 Clash",
+            run_export_pipeline,
+            on_done=_on_done,
+            db=self._db,
+            export_type="clash",
+        )
 
     def _do_export_sub(self):
-        """导出订阅"""
-        try:
-            from freeladder.exporter import export_subscription
-            path = export_subscription(db=self._db)
-            if path:
-                self._log(f"✓ 订阅已导出: {path}")
-            else:
-                self._log("⚠ 导出失败：没有可用节点")
-        except Exception as e:
-            self._log(f"✗ 导出失败: {e}")
+        """导出订阅：走 ExportPipeline"""
+        if self._task_manager.has_running_task():
+            self._log("⚠ 已有任务在运行")
+            return
+
+        def _on_done(result):
+            def _update():
+                if hasattr(result, 'ok') and result.ok:
+                    path = result.data.get("file_path", "")
+                    if path:
+                        self._log(f"✓ 订阅已导出: {path}")
+                    else:
+                        self._log("⚠ 导出失败：没有可用节点")
+                else:
+                    self._log("⚠ 导出失败")
+            self.after(0, _update)
+
+        from freeladder.tasks.export_pipeline import run_export_pipeline
+        self._task_manager.start_task(
+            "导出订阅",
+            run_export_pipeline,
+            on_done=_on_done,
+            db=self._db,
+            export_type="subscription",
+        )
 
     def _open_export_dir(self):
         """打开导出目录"""
@@ -512,6 +558,7 @@ class FreeLadderApp(ctk.CTk):
 
     def on_closing(self):
         """关闭窗口时清理"""
+        self._task_manager.cancel_current()
         if self._worker.is_running:
             self._worker.stop()
         if self._web_process:
