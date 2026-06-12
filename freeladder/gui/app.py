@@ -521,14 +521,17 @@ class FreeLadderApp(ctk.CTk):
         )
 
     def _open_export_dir(self):
-        """打开导出目录"""
+        """打开导出目录（非阻塞）"""
         export_dir = self._config.export_path
-        if sys.platform == "win32":
-            os.startfile(str(export_dir))
-        elif sys.platform == "darwin":
-            subprocess.run(["open", str(export_dir)])
-        else:
-            subprocess.run(["xdg-open", str(export_dir)])
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(export_dir))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(export_dir)])
+            else:
+                subprocess.Popen(["xdg-open", str(export_dir)])
+        except Exception as e:
+            self._log(f"打开目录失败: {e}")
 
     def _toggle_web(self):
         """启动/停止 Web API"""
@@ -552,7 +555,9 @@ class FreeLadderApp(ctk.CTk):
                 thread.start()
                 url = f"http://{self._config.web.host}:{self._config.web.port}"
                 self._log(f"✓ Web API 已启动: {url}")
-                webbrowser.open(url)
+                # 非阻塞打开浏览器
+                import threading as _threading
+                _threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
             except Exception as e:
                 self._log(f"✗ Web API 启动失败: {e}")
 

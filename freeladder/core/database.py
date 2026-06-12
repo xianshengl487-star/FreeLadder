@@ -137,66 +137,65 @@ class Database:
 
         只处理高级协议 (vmess/vless/trojan/ss/ssr/hysteria/hysteria2/tuic)，
         普通协议 (http/socks5) 的 node_key 不变。
+
+        优化: 只查询需要迁移的行，批量更新，减少锁时间。
         """
-        rows = self._conn.execute(
-            "SELECT id, node_key, raw_uri, protocol, server, port FROM nodes"
-        ).fetchall()
+        # 只查询可能需要迁移的行（高级协议且旧格式 key）
+        rows = self._conn.execute("""
+            SELECT id, node_key, raw_uri, protocol FROM nodes
+            WHERE node_key LIKE '%://%'
+              AND (
+                node_key LIKE 'vmess://%' OR node_key LIKE 'vless://%'
+                OR node_key LIKE 'trojan://%' OR node_key LIKE 'ss://%'
+                OR node_key LIKE 'ssr://%' OR node_key LIKE 'hysteria://%'
+                OR node_key LIKE 'hysteria2://%' OR node_key LIKE 'tuic://%'
+              )
+        """).fetchall()
 
         if not rows:
             return
 
-        advanced_prefixes = (
-            "vmess:", "vless:", "trojan:", "ss:", "ssr:",
-            "hysteria:", "hysteria2:", "tuic:",
-        )
-
+        import hashlib
         migrated = 0
+        to_update = []
+        to_delete = []
+
         for row in rows:
             old_key = row["node_key"] or ""
-            # 只迁移高级协议节点（新 key 不含 "://"）
-            if "://" not in old_key:
-                continue
-            if not any(old_key.lower().startswith(p) for p in
-                       ("vmess://", "vless://", "trojan://", "ss://", "ssr://",
-                        "hysteria://", "hysteria2://", "tuic://")):
-                continue
-
             raw_uri = row["raw_uri"] or ""
             proto = row["protocol"] or "unknown"
 
-            # 用与 Node.node_key 相同的算法重算
             if raw_uri and "://" in raw_uri:
-                import hashlib
                 normalized = raw_uri.split("#", 1)[0].strip()
                 h = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
                 new_key = f"{proto}:{h}"
             else:
-                # 没有 raw_uri，保留旧 key
                 continue
 
             if new_key == old_key:
                 continue
 
-            # 检查新 key 是否已存在（可能同一条数据有两种 key）
+            # 检查新 key 是否已存在
             existing = self._conn.execute(
                 "SELECT id FROM nodes WHERE node_key = ?", (new_key,)
             ).fetchone()
 
             if existing:
-                # 新 key 已存在，删除旧 key 的记录（保留数据更完整的）
-                self._conn.execute("DELETE FROM nodes WHERE id = ?", (row["id"],))
-                logger.debug(f"迁移: 删除重复节点 {old_key} -> {new_key}")
+                to_delete.append(row["id"])
             else:
-                # 更新为新 key
-                self._conn.execute(
-                    "UPDATE nodes SET node_key = ? WHERE id = ?",
-                    (new_key, row["id"])
-                )
-                logger.debug(f"迁移: {old_key} -> {new_key}")
+                to_update.append((new_key, row["id"]))
 
             migrated += 1
 
         if migrated > 0:
+            # 批量执行更新和删除
+            for new_key, node_id in to_update:
+                self._conn.execute(
+                    "UPDATE nodes SET node_key = ? WHERE id = ?",
+                    (new_key, node_id)
+                )
+            for node_id in to_delete:
+                self._conn.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
             self._conn.commit()
             logger.info(f"数据库迁移: 重算了 {migrated} 个高级协议节点的 node_key")
 
@@ -567,42 +566,40 @@ class Database:
         return cursor.rowcount > 0
 
     def get_stats(self) -> dict:
-        """获取统计信息"""
-        total = self._conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
-        alive = self._conn.execute(
-            "SELECT COUNT(*) FROM nodes WHERE alive = 1"
-        ).fetchone()[0]
+        """获取统计信息（合并查询减少锁等待）"""
+        try:
+            row = self._conn.execute("""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN alive = 1 THEN 1 ELSE 0 END) as alive,
+                    AVG(CASE WHEN alive = 1 AND latency IS NOT NULL THEN latency END) as avg_lat,
+                    AVG(score) as avg_score
+                FROM nodes
+            """).fetchone()
+            total = row["total"] or 0
+            alive = row["alive"] or 0
+            avg_latency = row["avg_lat"] or 0
+            avg_score = row["avg_score"] or 0
+        except Exception:
+            total = alive = 0
+            avg_latency = avg_score = 0.0
 
-        # 按协议统计
-        rows = self._conn.execute(
-            "SELECT protocol, COUNT(*) as cnt FROM nodes GROUP BY protocol ORDER BY cnt DESC"
-        ).fetchall()
-        by_protocol = {row["protocol"]: row["cnt"] for row in rows}
-
-        # 按国家统计
-        rows = self._conn.execute(
-            "SELECT country, COUNT(*) as cnt FROM nodes WHERE country != '' GROUP BY country ORDER BY cnt DESC LIMIT 10"
-        ).fetchall()
-        by_country = {row["country"]: row["cnt"] for row in rows}
-
-        # 平均延迟
-        avg_row = self._conn.execute(
-            "SELECT AVG(latency) as avg_lat FROM nodes WHERE alive = 1 AND latency IS NOT NULL"
-        ).fetchone()
-        avg_latency = avg_row["avg_lat"] if avg_row and avg_row["avg_lat"] else 0
-
-        # 平均分数
-        avg_score_row = self._conn.execute(
-            "SELECT AVG(score) as avg_score FROM nodes"
-        ).fetchone()
-        avg_score = avg_score_row["avg_score"] if avg_score_row and avg_score_row["avg_score"] else 0
+        # 协议统计（单次查询）
+        by_protocol = {}
+        try:
+            rows = self._conn.execute(
+                "SELECT protocol, COUNT(*) as cnt FROM nodes GROUP BY protocol"
+            ).fetchall()
+            by_protocol = {row["protocol"]: row["cnt"] for row in rows}
+        except Exception:
+            pass
 
         return {
             "total": total,
             "alive": alive,
             "dead": total - alive,
             "by_protocol": by_protocol,
-            "by_country": by_country,
+            "by_country": {},
             "avg_latency": round(avg_latency, 1),
             "avg_score": round(avg_score, 1),
         }

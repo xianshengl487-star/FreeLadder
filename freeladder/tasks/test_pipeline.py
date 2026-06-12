@@ -1,17 +1,16 @@
 # path: freeladder/tasks/test_pipeline.py
 """多线程节点测试 Pipeline
 
-多线程测试节点，普通测试和 Mihomo 测试分开限流，
-结果分批写库，GUI 不实时重绘整表。
+多线程测试节点，测试结果分批写库，GUI 不实时重绘整表。
 
 流程:
 1. 根据 mode 获取待测试节点
-2. 普通 TCP/HTTP 测试用 test_workers
-3. Mihomo 高级测试用 mihomo_test_workers
-4. 测试结果分批写库
-5. 支持 cancel_token
+2. 普通测试用 test_workers 并发
+3. 测试结果收集到列表，每 batch_size 条写一次库
+4. 支持 cancel_token
 """
 
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Optional
 
@@ -74,9 +73,11 @@ def run_test_pipeline(
         logger.info("没有需要测试的节点")
         return stats
 
-    # 2. 并发测试
+    # 2. 并发测试，结果收集后批量写库
     max_workers = min(perf.test_workers, len(nodes))
     timeout = perf.test_timeout_seconds
+    batch_size = perf.db_batch_size
+    results_batch = []
 
     def _test_one(node):
         """测试单个节点"""
@@ -90,6 +91,15 @@ def run_test_pipeline(
             return node, result.alive, result.latency, result.error
         except Exception as e:
             return node, False, -1, str(e)
+
+    def _flush_batch(batch):
+        """批量写入测试结果"""
+        if not batch:
+            return
+        try:
+            db.upsert_nodes_bulk(batch, batch_size=batch_size)
+        except Exception as e:
+            logger.debug(f"批量写入测试结果失败: {e}")
 
     try:
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="test") as executor:
@@ -118,21 +128,25 @@ def run_test_pipeline(
                 else:
                     stats["dead"] += 1
 
-                # 更新节点状态
-                try:
-                    import time as _time
-                    node.alive = alive
-                    node.latency = latency if latency > 0 else None
-                    node.last_checked = _time.strftime("%Y-%m-%d %H:%M:%S")
-                    db.upsert_node(node)
-                except Exception as e:
-                    logger.debug(f"更新节点状态失败: {e}")
+                # 更新节点状态并加入批量
+                node.alive = alive
+                node.latency = latency if latency > 0 else None
+                node.last_checked = time.strftime("%Y-%m-%d %H:%M:%S")
+                results_batch.append(node)
+
+                # 达到 batch_size 时写库
+                if len(results_batch) >= batch_size:
+                    _flush_batch(results_batch)
+                    results_batch = []
 
                 if on_progress and throttler.should_emit():
                     on_progress(done_count, stats["total"], f"测试 {done_count}/{stats['total']} 个节点")
 
     except Exception as e:
         logger.error(f"TestPipeline 异常: {e}")
+
+    # 写入剩余
+    _flush_batch(results_batch)
 
     logger.info(
         f"TestPipeline 完成: 测试 {stats['tested']}, 可用 {stats['alive']}, 失败 {stats['dead']}"
