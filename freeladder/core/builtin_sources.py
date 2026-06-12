@@ -241,6 +241,27 @@ BUILTIN_SOURCES: list[dict] = [
         "url": "https://cdn.jsdelivr.net/gh/mfuu/v2ray@master/clash.yaml",
         "format": "clash",
     },
+    {
+        "name": "jsDelivr-xiaoji235",
+        "url": "https://testingcf.jsdelivr.net/gh/xiaoji235/airport-free@main/v2ray.txt",
+        "format": "base64",
+    },
+    # ── 非 GitHub 公开镜像 / 托管 ──
+    {
+        "name": "ghproxy-peasoft",
+        "url": "https://ghproxy.net/https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.txt",
+        "format": "base64",
+    },
+    {
+        "name": "nigx-ripaojiedian",
+        "url": "https://down.nigx.cn/raw.githubusercontent.com/ripaojiedian/freenode/main/sub",
+        "format": "base64",
+    },
+    {
+        "name": "jiang-netlify",
+        "url": "https://jiang.netlify.app",
+        "format": "base64",
+    },
 ]
 
 
