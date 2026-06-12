@@ -25,7 +25,7 @@ class ScraperConfig(BaseModel):
     max_nodes_per_source: int = 800
     max_total_nodes: int = 8000
     source_failure_cache_minutes: int = 60
-    builtin_enabled: bool = True
+    builtin_enabled: bool = False
 
 
 class TesterConfig(BaseModel):
@@ -92,6 +92,7 @@ class SourceIntelConfig(BaseModel):
     max_sites_per_run: int = 20
     max_links_per_site: int = 50
     max_depth_per_site: int = 0
+    non_github_sites: list[dict] = Field(default_factory=list)
 
     # RSS / Atom
     rss_watch_enabled: bool = True

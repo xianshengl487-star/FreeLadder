@@ -353,13 +353,8 @@ class FreeLadderApp(ctk.CTk):
             self._log("⚠ 已有任务在运行")
             return
 
-        # 检查内置源是否启用
-        if not self._config.scraper.builtin_enabled:
-            self._log("⚠ 内置源已禁用，请在 config.yaml 中设置 builtin_enabled: true")
-            return
-
         self._set_status("获取中...")
-        self._log("🚀 从内置免费源获取节点（后台爬取 + 入库）...")
+        self._log("🚀 从启用的源获取节点（后台爬取 + 入库）...")
         self._last_progress_time = 0
 
         def _on_progress(current, total, msg):

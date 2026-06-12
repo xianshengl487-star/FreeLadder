@@ -16,7 +16,7 @@ scraper:
   max_nodes_per_source: 800   # 每个源最多保留节点数
   max_total_nodes: 8000       # 一键获取总节点上限
   source_failure_cache_minutes: 60  # 失败源缓存时间（分钟）
-  builtin_enabled: true       # 是否启用内置免费源
+  builtin_enabled: false      # 是否启用内置免费源（默认关闭，第三方源需用户确认）
 
 tester:
   test_url: "https://www.gstatic.com/generate_204"
@@ -77,6 +77,29 @@ source_intel:
   max_sites_per_run: 20
   max_links_per_site: 50
   max_depth_per_site: 0         # 不递归
+
+  # 非 GitHub 候选站点（默认全部 disabled，用户手动启用）
+  non_github_sites:
+    - name: NodeFree
+      url: https://nodefree.org/
+      kind: webpage
+      enabled: false
+    - name: OpenRunner
+      url: https://freenode.openrunner.net/
+      kind: webpage
+      enabled: false
+    - name: Xrayfree
+      url: https://tt.vg/freeclash
+      kind: webpage
+      enabled: false
+    - name: Learnhard-jsdelivr
+      url: "https://cdn.jsdelivr.net/gh/vxiaov/free_proxies@main/clash/clash.provider.yaml"
+      kind: jsdelivr
+      enabled: false
+    - name: Pawdroid-mirror-v2gh
+      url: "https://mirror.v2gh.com/https://raw.githubusercontent.com/Pawdroid/Free-servers/main/sub"
+      kind: direct
+      enabled: false
 
   # RSS / Atom
   rss_watch_enabled: true

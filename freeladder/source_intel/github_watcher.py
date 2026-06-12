@@ -50,6 +50,7 @@ class GitHubWatcher:
         self._scanner = RepoScanner(self._extractor)
         self._api_base = "https://api.github.com"
         self._raw_base = "https://raw.githubusercontent.com"
+        self._branch_cache: dict[str, str] = {}  # repo -> branch
 
     def _get_headers(self, etag: str = "", last_modified: str = "") -> dict:
         """构建请求头"""
@@ -187,21 +188,67 @@ class GitHubWatcher:
             return True
 
     def fetch_readme(self, repo: str) -> str:
-        """获取 README 内容"""
-        url = f"{self._raw_base}/{repo}/master/README.md"
-        return self._fetch_raw(url)
+        """获取 README 内容（自动检测默认分支，fallback main→master）"""
+        branch = self.get_default_branch(repo)
+        # 尝试默认分支
+        url = f"{self._raw_base}/{repo}/{branch}/README.md"
+        content = self._fetch_raw(url)
+        if content:
+            return content
+        # fallback: main → master
+        for fallback in ("main", "master"):
+            if fallback == branch:
+                continue
+            url = f"{self._raw_base}/{repo}/{fallback}/README.md"
+            content = self._fetch_raw(url)
+            if content:
+                return content
+        return ""
 
     def fetch_candidate_files(self, repo: str) -> dict[str, str]:
-        """获取候选文件内容"""
+        """获取候选文件内容（自动检测默认分支）"""
+        branch = self.get_default_branch(repo)
         files = {}
         for filename in CANDIDATE_FILES:
             if filename.lower() == "readme.md":
                 continue  # 已单独处理
-            url = f"{self._raw_base}/{repo}/master/{filename}"
+            # 尝试默认分支
+            url = f"{self._raw_base}/{repo}/{branch}/{filename}"
             content = self._fetch_raw(url)
+            if not content:
+                # fallback: main → master
+                for fallback in ("main", "master"):
+                    if fallback == branch:
+                        continue
+                    url = f"{self._raw_base}/{repo}/{fallback}/{filename}"
+                    content = self._fetch_raw(url)
+                    if content:
+                        break
             if content:
                 files[filename] = content
         return files
+
+    def get_default_branch(self, repo: str) -> str:
+        """获取仓库默认分支（带缓存，失败返回 main）"""
+        if repo in self._branch_cache:
+            return self._branch_cache[repo]
+
+        headers = self._get_headers()
+        url = f"{self._api_base}/repos/{repo}"
+        try:
+            with httpx.Client(timeout=self._config.request_timeout_seconds) as client:
+                resp = client.get(url, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    branch = data.get("default_branch", "main")
+                    self._branch_cache[repo] = branch
+                    return branch
+        except Exception as e:
+            logger.debug(f"获取默认分支失败 {repo}: {e}")
+
+        # fallback
+        self._branch_cache[repo] = "main"
+        return "main"
 
     def _fetch_raw(self, url: str) -> str:
         """获取 raw 文件内容"""

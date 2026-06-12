@@ -1,10 +1,20 @@
 # path: tests/conftest.py
 """共享 pytest fixtures"""
 
+import tempfile
+from pathlib import Path
+
 import pytest
 
 from freeladder.core.models import Node, Protocol, TestResult, ExportOptions
 from freeladder.core.config import Config, TesterConfig, ScraperConfig, MihomoConfig
+
+
+@pytest.fixture
+def source_store(tmp_path):
+    """创建临时 SourceStore（根 conftest，供 tests/ 顶层测试使用）"""
+    from freeladder.source_intel.source_store import SourceStore
+    return SourceStore(data_dir=tmp_path)
 
 
 def make_node(

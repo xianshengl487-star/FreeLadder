@@ -45,7 +45,7 @@ class TestScraperConfig:
         assert cfg.max_nodes_per_source == 800
         assert cfg.max_total_nodes == 8000
         assert cfg.source_failure_cache_minutes == 60
-        assert cfg.builtin_enabled is True
+        assert cfg.builtin_enabled is False
 
     def test_custom_sources(self):
         cfg = ScraperConfig(sources=["http://example.com/sub1", "http://example.com/sub2"])

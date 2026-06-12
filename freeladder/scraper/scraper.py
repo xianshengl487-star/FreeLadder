@@ -177,14 +177,13 @@ def scrape_builtin(
     config = get_config()
     scraper_cfg = config.scraper
 
-    if not scraper_cfg.builtin_enabled:
-        logger.warning("内置源已禁用 (builtin_enabled=false)")
-        return []
+    if max_total_nodes is None:
+        max_total_nodes = scraper_cfg.max_total_nodes
 
-    # 收集所有源: legacy 内置 + source_intel 启用源
-    sources = [s["url"] for s in BUILTIN_SOURCES]
+    # 收集启用的源: 优先 source_intel，再追加 legacy builtin
+    sources = []
 
-    # 从 source_intel 获取启用源（仅 enabled，排除 candidate/dead）
+    # 1. 从 source_intel 获取启用源
     try:
         from freeladder.source_intel.engine import SourceIntelEngine
         si_config = config.source_intel
@@ -197,12 +196,15 @@ def scrape_builtin(
     except Exception as e:
         logger.debug(f"source_intel 未加载: {e}")
 
-    if not sources:
-        logger.warning("没有可用订阅源")
-        return []
+    # 2. 仅当 builtin_enabled=true 时追加 legacy 内置源
+    if scraper_cfg.builtin_enabled:
+        legacy_urls = [s["url"] for s in BUILTIN_SOURCES]
+        logger.info(f"追加 {len(legacy_urls)} 个 legacy 内置源")
+        sources.extend(legacy_urls)
 
-    if max_total_nodes is None:
-        max_total_nodes = scraper_cfg.max_total_nodes
+    if not sources:
+        logger.warning("没有启用的源，请先在源情报中心启用源")
+        return []
 
     timeout = scraper_cfg.request_timeout
     max_workers = min(scraper_cfg.max_workers, len(sources))

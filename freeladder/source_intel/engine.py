@@ -87,11 +87,12 @@ class SourceIntelEngine:
         if not self._config.non_github_discovery_enabled:
             return []
 
-        # 使用 store 中的非 GitHub 站点配置
-        # 这些站点需要用户在 config 中配置
-        sources = self._non_github.discover_from_sites(
-            [], on_progress, cancel_token  # 空站点列表，用户自行配置
-        )
+        # 优先使用用户配置的 non_github_sites，否则使用预置种子页面
+        sites = getattr(self._config, "non_github_sites", None)
+        if not sites:
+            sites = self._non_github.get_seed_public_pages()
+
+        sources = self._non_github.discover_from_sites(sites, on_progress, cancel_token)
 
         for s in sources:
             existing = self._store.get(s.id)

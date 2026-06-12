@@ -36,6 +36,45 @@ _BLOCKED_IP_PREFIXES = ("10.", "172.16.", "172.17.", "172.18.", "172.19.",
                         "172.25.", "172.26.", "172.27.", "172.28.", "172.29.",
                         "172.30.", "172.31.", "192.168.")
 
+# 预置候选公开页面（默认全部 disabled）
+SEED_PUBLIC_PAGES: list[dict] = [
+    {
+        "name": "NodeFree",
+        "url": "https://nodefree.org/",
+        "kind": "webpage",
+        "enabled": False,
+        "note": "公开免费节点页面，扫描页面中明示的订阅地址",
+    },
+    {
+        "name": "OpenRunner",
+        "url": "https://freenode.openrunner.net/",
+        "kind": "webpage",
+        "enabled": False,
+        "note": "公开 free node 页面，需从页面中提取明示 YAML 链接",
+    },
+    {
+        "name": "Xrayfree",
+        "url": "https://tt.vg/freeclash",
+        "kind": "webpage",
+        "enabled": False,
+        "note": "公开免费 Clash 入口，需验证是否能解析为订阅内容",
+    },
+    {
+        "name": "Learnhard-jsdelivr",
+        "url": "https://cdn.jsdelivr.net/gh/vxiaov/free_proxies@main/clash/clash.provider.yaml",
+        "kind": "jsdelivr",
+        "enabled": False,
+        "note": "jsDelivr GitHub CDN 镜像，Clash provider YAML",
+    },
+    {
+        "name": "Pawdroid-mirror-v2gh",
+        "url": "https://mirror.v2gh.com/https://raw.githubusercontent.com/Pawdroid/Free-servers/main/sub",
+        "kind": "direct",
+        "enabled": False,
+        "note": "Pawdroid Free-servers 的公开镜像订阅入口",
+    },
+]
+
 
 class NonGitHubDiscovery:
     """非 GitHub 公开源候选发现"""
@@ -146,3 +185,7 @@ class NonGitHubDiscovery:
             return False
         except Exception:
             return True
+
+    def get_seed_public_pages(self) -> list[dict]:
+        """获取预置候选公开页面列表（默认全部 disabled）"""
+        return SEED_PUBLIC_PAGES
