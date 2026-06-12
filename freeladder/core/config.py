@@ -26,6 +26,9 @@ class ScraperConfig(BaseModel):
     max_total_nodes: int = 8000
     source_failure_cache_minutes: int = 60
     builtin_enabled: bool = False
+    # 每次点击「获取节点」只抓取一部分源，下次点击继续下一批
+    fetch_batch_sources: int = 10
+    fetch_batch_max_nodes: int = 1500
 
 
 class TesterConfig(BaseModel):
@@ -56,6 +59,7 @@ class GUIConfig(BaseModel):
     table_page_size: int = 200
     max_render_rows: int = 300
     progress_update_interval_ms: int = 500
+    country_search_enabled: bool = True
 
 
 class BrowserConfig(BaseModel):

@@ -33,6 +33,7 @@ data/source_intel.json
 data/source_health.json
 data/repo_watch.json
 data/non_github_sources.json
+data/fetch_cursor.json
 exports/*.yaml
 exports/*.txt
 

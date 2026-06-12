@@ -99,29 +99,40 @@ def update(ctx):
 @cli.command()
 @click.pass_context
 def fetch(ctx):
-    """一键从内置免费源获取节点
+    """分批从内置免费源获取节点
 
-    使用预置的公开免费代理订阅源，无需手动配置。
-    适合快速获取大量可用节点。
+    每次只抓取一部分订阅源，多次执行可轮询全部源。
     """
-    from freeladder.scraper.scraper import scrape_builtin
+    from freeladder.tasks.fetch_pipeline import run_fetch_pipeline
 
     db = get_db()
+    cfg = ctx.obj["config"]
+    batch_size = cfg.scraper.fetch_batch_sources
 
-    click.echo("🔍 正在从内置免费源获取节点...")
-    click.echo("   共 25 个订阅源，可能需要 1-2 分钟\n")
+    click.echo("🔍 正在分批获取节点...")
+    click.echo(f"   每批 {batch_size} 个源，多次执行可获取全部源\n")
 
     def on_progress(current, total, msg):
         click.echo(f"  [{current}/{total}] {msg}")
 
-    nodes = scrape_builtin(on_progress=on_progress)
+    result = run_fetch_pipeline(db, on_progress=on_progress, config=cfg)
 
-    if not nodes:
-        click.echo("\n⚠ 未获取到任何节点，可能网络不通或所有源均不可用")
+    if result.get("cancelled"):
+        click.echo("\n⚠ 获取已取消")
         return
 
-    count = db.upsert_nodes(nodes)
-    click.echo(f"\n✓ 获取 {len(nodes)} 个节点，新增 {count} 个")
+    if result.get("submitted_nodes", 0) == 0 and result.get("inserted", 0) == 0:
+        click.echo("\n⚠ 本批未获取到任何节点，可能网络不通或所有源均不可用")
+        return
+
+    limit_note = "（已达本批上限，可再次点击获取下一批）" if result.get("limit_reached") else ""
+    click.echo(
+        f"\n✓ 第 {result.get('batch_no', '?')}/{result.get('batch_total', '?')} 批完成: "
+        f"{result.get('sources_done', 0)} 源, "
+        f"提交 {result.get('submitted_nodes', 0)} 节点, "
+        f"新增 {result.get('inserted', 0)}{limit_note}"
+    )
+    click.echo("  再次执行 fetch 可继续获取下一批源")
     click.echo("  可使用 'python main.py test' 测试节点连通性")
 
 
@@ -170,20 +181,27 @@ def test(ctx, new, alive):
 @cli.command()
 @click.option("--alive", is_flag=True, help="只显示可用节点")
 @click.option("--protocol", "-p", default=None, help="按协议筛选")
+@click.option("--country", "-c", default=None, help="按国家/地区搜索，如 日本、JP、美国")
 @click.option("--limit", "-n", default=50, help="显示数量")
 @click.pass_context
-def list(ctx, alive, protocol, limit):
+def list(ctx, alive, protocol, country, limit):
     """列出节点"""
     db = get_db()
 
-    if alive:
-        nodes = db.get_alive_nodes()
+    if country or protocol or alive:
+        nodes = db.get_nodes_page(
+            offset=0,
+            limit=limit,
+            protocol=protocol,
+            country=country,
+            alive_only=alive,
+        )
+    elif alive:
+        nodes = db.get_alive_nodes()[:limit]
     elif protocol:
-        nodes = db.get_nodes_by_protocol(protocol)
+        nodes = db.get_nodes_by_protocol(protocol)[:limit]
     else:
-        nodes = db.get_all_nodes()
-
-    nodes = nodes[:limit]
+        nodes = db.get_all_nodes()[:limit]
 
     if not nodes:
         click.echo("没有节点")

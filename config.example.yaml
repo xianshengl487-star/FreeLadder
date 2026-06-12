@@ -8,15 +8,15 @@ app:
   log_level: INFO       # DEBUG, INFO, WARNING, ERROR
 
 scraper:
-  sources: []           # 订阅源 URL 列表，示例:
-                        #   - https://example.com/sub1.txt
-                        #   - https://example.com/sub2.yaml
-  request_timeout: 10   # 请求超时（秒）
-  max_workers: 6        # 并发下载线程数（内置源爬取）
-  max_nodes_per_source: 800   # 每个源最多保留节点数
-  max_total_nodes: 8000       # 一键获取总节点上限
-  source_failure_cache_minutes: 60  # 失败源缓存时间（分钟）
-  builtin_enabled: false      # 是否启用内置免费源（默认关闭，第三方源需用户确认）
+  sources: []           # 自定义订阅源（可选，与内置源叠加）
+  request_timeout: 15   # 请求超时（秒）
+  max_workers: 8        # 并发下载线程数
+  max_nodes_per_source: 800
+  max_total_nodes: 8000
+  source_failure_cache_minutes: 60
+  builtin_enabled: true       # 启用内置免费源（已打包进软件）
+  fetch_batch_sources: 10     # 每次点击「分批获取」抓取的源数量
+  fetch_batch_max_nodes: 1500   # 每批最多入库节点数
 
 tester:
   test_url: "https://www.gstatic.com/generate_204"
@@ -40,9 +40,10 @@ web:
 gui:
   auto_update: false
   update_interval_minutes: 120
-  table_page_size: 200       # 每页显示节点数
-  max_render_rows: 300       # 最大渲染行数
-  progress_update_interval_ms: 500  # 进度更新间隔（毫秒）
+  table_page_size: 200
+  max_render_rows: 300
+  progress_update_interval_ms: 500
+  country_search_enabled: true   # 启用国家/地区搜索
 
 browser:
   enabled: true
@@ -78,28 +79,32 @@ source_intel:
   max_links_per_site: 50
   max_depth_per_site: 0         # 不递归
 
-  # 非 GitHub 候选站点（默认全部 disabled，用户手动启用）
+  # 非 GitHub 候选站点（jsDelivr/ghproxy 等镜像已预置）
   non_github_sites:
     - name: NodeFree
       url: https://nodefree.org/
       kind: webpage
-      enabled: false
+      enabled: true
     - name: OpenRunner
       url: https://freenode.openrunner.net/
       kind: webpage
-      enabled: false
-    - name: Xrayfree
-      url: https://tt.vg/freeclash
-      kind: webpage
-      enabled: false
+      enabled: true
     - name: Learnhard-jsdelivr
       url: "https://cdn.jsdelivr.net/gh/vxiaov/free_proxies@main/clash/clash.provider.yaml"
       kind: jsdelivr
-      enabled: false
-    - name: Pawdroid-mirror-v2gh
-      url: "https://mirror.v2gh.com/https://raw.githubusercontent.com/Pawdroid/Free-servers/main/sub"
+      enabled: true
+    - name: jsDelivr-mfuu
+      url: "https://cdn.jsdelivr.net/gh/mfuu/v2ray@master/clash.yaml"
+      kind: jsdelivr
+      enabled: true
+    - name: jsDelivr-Pawdroid
+      url: "https://cdn.jsdelivr.net/gh/Pawdroid/Free-servers@main/sub"
+      kind: jsdelivr
+      enabled: true
+    - name: ghproxy-mfuu
+      url: "https://ghproxy.net/https://raw.githubusercontent.com/mfuu/v2ray/master/clash.yaml"
       kind: direct
-      enabled: false
+      enabled: true
 
   # RSS / Atom
   rss_watch_enabled: true
@@ -126,7 +131,7 @@ source_intel:
   auto_export_after_refresh: false
 
   # 安全确认
-  require_user_confirm_for_new_sources: true
+  require_user_confirm_for_new_sources: false
   require_user_confirm_for_github_account_watch: true
 
 # 性能配置

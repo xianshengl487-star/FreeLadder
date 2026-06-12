@@ -395,6 +395,26 @@ class Database:
         logger.info(f"批量入库: 新增 {added_count} / 总计 {total} 个节点")
         return added_count
 
+    @staticmethod
+    def _country_filter_clause(country: Optional[str]) -> tuple[str, list]:
+        """构建国家/地区搜索条件（匹配 country 与 name 字段）"""
+        if not country:
+            return "", []
+
+        from .country_utils import build_country_search_patterns
+
+        patterns = build_country_search_patterns(country)
+        if not patterns:
+            return "", []
+
+        parts = []
+        params = []
+        for pattern in patterns:
+            parts.append("(LOWER(country) LIKE ? OR LOWER(name) LIKE ?)")
+            params.extend([pattern, pattern])
+
+        return f"({' OR '.join(parts)})", params
+
     def get_nodes_page(
         self,
         offset: int = 0,
@@ -411,9 +431,12 @@ class Database:
         if protocol:
             conditions.append("protocol = ?")
             params.append(protocol)
-        if country:
-            conditions.append("LOWER(country) LIKE ?")
-            params.append(f"%{country.lower()}%")
+
+        country_sql, country_params = self._country_filter_clause(country)
+        if country_sql:
+            conditions.append(country_sql)
+            params.extend(country_params)
+
         if alive_only:
             conditions.append("alive = 1")
         if min_score > 0:
@@ -441,9 +464,12 @@ class Database:
         if protocol:
             conditions.append("protocol = ?")
             params.append(protocol)
-        if country:
-            conditions.append("LOWER(country) LIKE ?")
-            params.append(f"%{country.lower()}%")
+
+        country_sql, country_params = self._country_filter_clause(country)
+        if country_sql:
+            conditions.append(country_sql)
+            params.extend(country_params)
+
         if alive_only:
             conditions.append("alive = 1")
         if min_score > 0:
@@ -453,6 +479,54 @@ class Database:
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         sql = f"SELECT COUNT(*) FROM nodes {where}"
         return self._conn.execute(sql, params).fetchone()[0]
+
+    def get_distinct_countries(self, limit: int = 30) -> list[str]:
+        """获取数据库中已有的国家/地区列表"""
+        rows = self._conn.execute(
+            """
+            SELECT country, COUNT(*) AS c FROM nodes
+            WHERE country IS NOT NULL AND country != ''
+            GROUP BY country ORDER BY c DESC LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [row[0] for row in rows]
+
+    def backfill_countries(self, batch_size: int = 1000) -> int:
+        """从节点名称回填 country 字段"""
+        from .country_utils import extract_country_from_name
+
+        updated = 0
+        offset = 0
+        while True:
+            rows = self._conn.execute(
+                """
+                SELECT id, name, country FROM nodes
+                WHERE (country IS NULL OR country = '') AND name IS NOT NULL AND name != ''
+                LIMIT ? OFFSET ?
+                """,
+                (batch_size, offset),
+            ).fetchall()
+            if not rows:
+                break
+
+            for row in rows:
+                country = extract_country_from_name(row["name"])
+                if country:
+                    self._conn.execute(
+                        "UPDATE nodes SET country = ? WHERE id = ?",
+                        (country, row["id"]),
+                    )
+                    updated += 1
+
+            self._conn.commit()
+            if len(rows) < batch_size:
+                break
+            offset += batch_size
+
+        if updated:
+            logger.info(f"已回填 {updated} 个节点的国家/地区信息")
+        return updated
 
     def get_node_by_key(self, node_key: str) -> Optional[Node]:
         """按 node_key 查询节点"""
@@ -484,12 +558,8 @@ class Database:
         return [self._node_from_row(r) for r in rows]
 
     def get_nodes_by_country(self, country: str) -> list[Node]:
-        """按国家筛选"""
-        rows = self._conn.execute(
-            "SELECT * FROM nodes WHERE country = ? ORDER BY score DESC",
-            (country,)
-        ).fetchall()
-        return [self._node_from_row(r) for r in rows]
+        """按国家/地区筛选"""
+        return self.get_nodes_page(offset=0, limit=10000, country=country)
 
     def get_testable_nodes(self) -> list[Node]:
         """获取需要测试的节点：新节点或超过5分钟未测试的节点"""

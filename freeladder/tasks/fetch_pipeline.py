@@ -63,6 +63,10 @@ def run_fetch_pipeline(
         "inserted": 0,
         "updated": 0,
         "cancelled": False,
+        "limit_reached": False,
+        "batch_no": 0,
+        "batch_total": 0,
+        "batch_size": 0,
     }
 
     throttler = ProgressThrottler(perf.progress_update_interval_ms)
@@ -107,6 +111,21 @@ def run_fetch_pipeline(
         stats["sources_failed"] = len(sources)
         return stats
 
+    # 2.5 分批选取源（每次点击只抓取一部分）
+    batch_size = max(1, scraper_cfg.fetch_batch_sources)
+    from freeladder.core.fetch_cursor import FetchCursor
+    cursor = FetchCursor(config.data_path)
+    batch_sources, batch_info = cursor.select_batch(active_sources, batch_size)
+    active_sources = batch_sources
+    stats["sources_total"] = len(batch_sources)
+    stats["batch_no"] = batch_info.get("batch_no", 0)
+    stats["batch_total"] = batch_info.get("total_batches", 0)
+    stats["batch_size"] = batch_info.get("batch_size", 0)
+    logger.info(
+        f"分批获取: 第 {stats['batch_no']}/{stats['batch_total']} 批, "
+        f"本批 {stats['batch_size']} 个源"
+    )
+
     # 3. 启动 DBWriter
     db_writer = DBWriter(
         db,
@@ -118,7 +137,10 @@ def run_fetch_pipeline(
     # 4. 并发抓取
     max_workers = min(perf.fetch_workers, len(active_sources))
     max_per_source = perf.max_nodes_per_source
-    max_total = perf.max_total_nodes_per_task
+    max_total = min(
+        perf.max_total_nodes_per_task,
+        max(1, scraper_cfg.fetch_batch_max_nodes),
+    )
     timeout = perf.source_timeout_seconds
     submitted_total = 0
 
@@ -164,10 +186,10 @@ def run_fetch_pipeline(
                     # 检查总量限制
                     remaining = max_total - submitted_total
                     if remaining <= 0:
-                        logger.info(f"达到总节点上限 {max_total}，停止提交")
+                        logger.info(f"达到本批节点上限 {max_total}，停止提交")
                         for f in futures:
                             f.cancel()
-                        stats["cancelled"] = True
+                        stats["limit_reached"] = True
                         break
 
                     nodes_to_submit = nodes[:remaining]

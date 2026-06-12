@@ -60,6 +60,7 @@ class FreeLadderApp(ctk.CTk):
         self._page = 0
         self._page_size = self._config.gui.table_page_size
         self._total_count = 0
+        self._filter_active = False
 
         # 进度节流
         self._last_progress_time = 0.0
@@ -67,8 +68,8 @@ class FreeLadderApp(ctk.CTk):
         # 构建 UI
         self._build_ui()
 
-        # 初始加载
-        self.after(500, self._refresh_list)
+        # 初始加载：回填国家信息并刷新列表
+        self.after(500, self._initial_load)
 
     def _build_ui(self):
         """构建界面"""
@@ -117,7 +118,7 @@ class FreeLadderApp(ctk.CTk):
         btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
         btn_frame.pack(fill="x", pady=(0, 8))
 
-        ctk.CTkButton(btn_frame, text="🚀 一键获取", width=110, command=self._do_fetch,
+        ctk.CTkButton(btn_frame, text="🚀 分批获取", width=110, command=self._do_fetch,
                       fg_color="#4CAF50", hover_color="#388E3C").pack(side="left", padx=4)
         ctk.CTkButton(btn_frame, text="⛔ 停止", width=70, command=self._do_cancel,
                       fg_color="#F44336", hover_color="#D32F2F").pack(side="left", padx=4)
@@ -144,9 +145,12 @@ class FreeLadderApp(ctk.CTk):
         self._filter_protocol.set("全部")
         self._filter_protocol.pack(side="left", padx=4)
 
-        ctk.CTkLabel(filter_frame, text="国家:").pack(side="left", padx=(10, 4))
-        self._filter_country = ctk.CTkEntry(filter_frame, width=80, placeholder_text="全部")
+        ctk.CTkLabel(filter_frame, text="国家/地区:").pack(side="left", padx=(10, 4))
+        self._filter_country = ctk.CTkEntry(
+            filter_frame, width=120, placeholder_text="如: 日本/JP/美国"
+        )
         self._filter_country.pack(side="left", padx=4)
+        self._filter_country.bind("<Return>", lambda _e: self._apply_filter())
 
         self._filter_alive = ctk.CTkCheckBox(filter_frame, text="只看可用", command=self._on_filter_change)
         self._filter_alive.pack(side="left", padx=10)
@@ -156,7 +160,8 @@ class FreeLadderApp(ctk.CTk):
         self._filter_min_score.set(0)
         self._filter_min_score.pack(side="left", padx=4)
 
-        ctk.CTkButton(filter_frame, text="筛选", width=60, command=self._apply_filter).pack(side="left", padx=10)
+        ctk.CTkButton(filter_frame, text="🔍 搜索", width=70, command=self._apply_filter).pack(side="left", padx=4)
+        ctk.CTkButton(filter_frame, text="清除", width=60, command=self._clear_filter).pack(side="left", padx=4)
 
         # 分页按钮
         ctk.CTkButton(filter_frame, text="◀ 上一页", width=80, command=self._prev_page).pack(side="right", padx=4)
@@ -213,20 +218,56 @@ class FreeLadderApp(ctk.CTk):
         self._lbl_latency.configure(text=f"平均延迟: {stats['avg_latency']}ms")
         self._total_count = stats["total"]
 
+    def _initial_load(self):
+        """启动时回填国家并刷新列表"""
+        try:
+            updated = self._db.backfill_countries()
+            if updated:
+                self._log(f"已从节点名称识别 {updated} 个国家/地区标签")
+        except Exception as e:
+            self._log(f"国家识别失败: {e}")
+        self._refresh_list()
+
+    def _get_filter_kwargs(self) -> dict:
+        """读取当前筛选条件"""
+        protocol = self._filter_protocol.get()
+        if protocol == "全部":
+            protocol = None
+
+        country = self._filter_country.get().strip() or None
+        alive_only = self._filter_alive.get()
+        min_score = self._filter_min_score.get()
+
+        return {
+            "protocol": protocol,
+            "country": country,
+            "alive_only": alive_only,
+            "min_score": min_score,
+        }
+
     def _refresh_list(self):
-        """刷新节点列表（分页加载）"""
+        """刷新节点列表（分页加载，保留筛选）"""
         try:
             max_render = self._config.gui.max_render_rows
             offset = self._page * self._page_size
-            self._nodes = self._db.get_nodes_page(offset=offset, limit=self._page_size)
-            self._total_count = self._db.get_node_count()
+            filters = self._get_filter_kwargs() if self._filter_active else {
+                "protocol": None,
+                "country": None,
+                "alive_only": False,
+                "min_score": 0,
+            }
+
+            self._nodes = self._db.get_nodes_page(
+                offset=offset, limit=self._page_size, **filters
+            )
+            self._total_count = self._db.get_node_count(**filters)
 
             self._render_table(self._nodes)
             self._refresh_status()
             self._update_page_info()
 
             if self._total_count > max_render:
-                self._log(f"已加载第 {self._page + 1} 页（{len(self._nodes)} 条），共 {self._total_count} 个节点。请使用筛选或分页查看更多。")
+                self._log(f"已加载第 {self._page + 1} 页（{len(self._nodes)} 条），共 {self._total_count} 个节点。请使用搜索或分页查看更多。")
             else:
                 self._log(f"已加载 {len(self._nodes)} 个节点")
         except Exception as e:
@@ -294,34 +335,40 @@ class FreeLadderApp(ctk.CTk):
         pass  # 延迟加载
 
     def _apply_filter(self):
-        """应用筛选（分页）"""
+        """应用搜索/筛选（分页）"""
         max_render = self._config.gui.max_render_rows
+        filters = self._get_filter_kwargs()
+        self._filter_active = any([
+            filters["protocol"],
+            filters["country"],
+            filters["alive_only"],
+            filters["min_score"] > 0,
+        ])
 
-        protocol = self._filter_protocol.get()
-        if protocol == "全部":
-            protocol = None
-
-        country = self._filter_country.get().strip() or None
-        alive_only = self._filter_alive.get()
-        min_score = self._filter_min_score.get()
-
-        self._total_count = self._db.get_node_count(
-            protocol=protocol, country=country,
-            alive_only=alive_only, min_score=min_score,
-        )
+        self._total_count = self._db.get_node_count(**filters)
         self._nodes = self._db.get_nodes_page(
-            offset=0, limit=self._page_size,
-            protocol=protocol, country=country,
-            alive_only=alive_only, min_score=min_score,
+            offset=0, limit=self._page_size, **filters
         )
         self._page = 0
         self._render_table(self._nodes)
         self._update_page_info()
 
+        country_hint = f"地区「{filters['country']}」" if filters["country"] else "全部地区"
         if self._total_count > max_render:
-            self._log(f"筛选结果: {self._total_count} 个节点（显示前 {len(self._nodes)} 个）")
+            self._log(f"搜索 {country_hint}: 共 {self._total_count} 个节点（显示前 {len(self._nodes)} 个）")
         else:
-            self._log(f"筛选结果: {len(self._nodes)} 个节点")
+            self._log(f"搜索 {country_hint}: {self._total_count} 个节点")
+
+    def _clear_filter(self):
+        """清除搜索条件"""
+        self._filter_protocol.set("全部")
+        self._filter_country.delete(0, "end")
+        self._filter_alive.deselect()
+        self._filter_min_score.set(0)
+        self._filter_active = False
+        self._page = 0
+        self._refresh_list()
+        self._log("已清除搜索条件")
 
     def _throttled_log(self, msg: str):
         """节流日志：间隔不低于 progress_update_interval_ms"""
@@ -344,19 +391,22 @@ class FreeLadderApp(ctk.CTk):
             self._log("⚠ 已有任务在运行")
             return
 
+        batch_size = self._config.scraper.fetch_batch_sources
         self._set_status("获取中...")
-        self._log("🚀 从启用的源获取节点（Pipeline 并发 + DBWriter 入库）...")
+        self._log(f"🚀 分批获取节点（每批 {batch_size} 个源，多次点击可轮询全部源）...")
 
         def _on_done(result):
             def _update():
                 if hasattr(result, 'ok') and result.ok:
                     data = result.data
                     self._log(
-                        f"✓ 获取完成: {data.get('sources_done', 0)} 源, "
+                        f"✓ 第 {data.get('batch_no', '?')}/{data.get('batch_total', '?')} 批完成: "
+                        f"{data.get('sources_done', 0)} 源, "
                         f"原始 {data.get('raw_nodes', 0)} 节点, "
                         f"提交 {data.get('submitted_nodes', 0)}, "
                         f"新增 {data.get('inserted', 0)}"
                     )
+                    self._db.backfill_countries()
                 elif hasattr(result, 'message') and result.message == "cancelled":
                     self._log("⚠ 获取已取消")
                 else:

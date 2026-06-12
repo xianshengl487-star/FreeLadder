@@ -91,6 +91,13 @@ def ensure_runtime_dirs(root: Path = None) -> RuntimeCheckResult:
     else:
         result.warnings.append("config.yaml 和 config.example.yaml 均不存在")
 
+    if result.config_exists:
+        try:
+            from freeladder.core.bootstrap import ensure_bundled_defaults
+            ensure_bundled_defaults(config_path)
+        except Exception:
+            pass
+
     # 检查写入权限
     try:
         test_file = root / ".write_test"

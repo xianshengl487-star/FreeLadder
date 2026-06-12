@@ -68,6 +68,7 @@ def scrape_source(url: str, timeout: int = 15) -> list[Node]:
             yaml.safe_load(stripped)  # 验证是合法 YAML
             nodes = extract_nodes_from_clash_yaml(stripped)
             if nodes:
+                _apply_countries(nodes)
                 logger.info(f"从 Clash YAML 订阅源获取 {len(nodes)} 个节点: {url}")
                 return nodes
         except Exception:
@@ -87,6 +88,7 @@ def scrape_source(url: str, timeout: int = 15) -> list[Node]:
             yaml.safe_load(decoded_stripped)  # 验证是合法 YAML
             nodes = extract_nodes_from_clash_yaml(decoded_stripped)
             if nodes:
+                _apply_countries(nodes)
                 logger.info(f"从 Clash YAML 订阅源获取 {len(nodes)} 个节点: {url}")
                 return nodes
         except Exception:
@@ -99,7 +101,15 @@ def scrape_source(url: str, timeout: int = 15) -> list[Node]:
     else:
         logger.warning(f"订阅源未找到有效节点: {url}")
 
+    _apply_countries(nodes)
     return nodes
+
+
+def _apply_countries(nodes: list[Node]) -> None:
+    """从节点名称提取国家/地区"""
+    from freeladder.core.country_utils import apply_country_to_node
+    for node in nodes:
+        apply_country_to_node(node)
 
 
 def scrape_all(
