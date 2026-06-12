@@ -79,27 +79,35 @@ def run_test_pipeline(
     batch_size = perf.db_batch_size
     results_batch = []
 
+    from freeladder.tester import TestService
+    tester = TestService(db)
+
     def _test_one(node):
         """测试单个节点"""
         if cancel_token and cancel_token.cancelled:
-            return node, False, -1, ""
+            return None
 
         try:
-            from freeladder.tester import TestService
-            tester = TestService(db)
-            result = tester.test_single_node(node, timeout=timeout)
-            return node, result.alive, result.latency, result.error
+            return tester.test_single_node(node, timeout=timeout)
         except Exception as e:
-            return node, False, -1, str(e)
+            from freeladder.core.models import TestResult
+            return TestResult(
+                node_id=node.id,
+                node_key=node.node_key,
+                alive=False,
+                error=str(e),
+                test_mode="basic",
+            )
 
     def _flush_batch(batch):
         """批量写入测试结果"""
         if not batch:
             return
-        try:
-            db.upsert_nodes_bulk(batch, batch_size=batch_size)
-        except Exception as e:
-            logger.debug(f"批量写入测试结果失败: {e}")
+        for result in batch:
+            try:
+                db.update_test_result(result)
+            except Exception as e:
+                logger.debug(f"写入测试结果失败 {result.node_key}: {e}")
 
     try:
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="test") as executor:
@@ -114,25 +122,25 @@ def run_test_pipeline(
                     break
 
                 try:
-                    node, alive, latency, error = future.result()
-                except Exception as e:
+                    result = future.result()
+                except Exception:
                     done_count += 1
                     stats["dead"] += 1
                     continue
 
+                if result is None:
+                    stats["cancelled"] = True
+                    break
+
                 done_count += 1
                 stats["tested"] = done_count
 
-                if alive:
+                if result.alive:
                     stats["alive"] += 1
                 else:
                     stats["dead"] += 1
 
-                # 更新节点状态并加入批量
-                node.alive = alive
-                node.latency = latency if latency > 0 else None
-                node.last_checked = time.strftime("%Y-%m-%d %H:%M:%S")
-                results_batch.append(node)
+                results_batch.append(result)
 
                 # 达到 batch_size 时写库
                 if len(results_batch) >= batch_size:

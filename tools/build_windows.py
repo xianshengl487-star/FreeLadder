@@ -156,6 +156,12 @@ def copy_package_files(root: Path, console: bool = False):
     if readme_mihomo.exists():
         shutil.copy2(readme_mihomo, dist_dir / "bin" / "README_MIHOMO.txt")
 
+    # 复制 Mihomo 二进制（若已下载到 bin/）
+    mihomo_src = root / "bin" / "mihomo.exe"
+    if mihomo_src.exists():
+        shutil.copy2(mihomo_src, dist_dir / "bin" / "mihomo.exe")
+        print("  + bin/mihomo.exe")
+
     print("✓ 软件包文件已复制")
 
 

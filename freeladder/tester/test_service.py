@@ -66,6 +66,33 @@ class TestService:
         logger.info(f"准备重新测试 {len(nodes)} 个存活节点")
         return self._test_nodes(nodes, on_progress)
 
+    def test_single_node(self, node: Node, timeout: Optional[float] = None) -> TestResult:
+        """测试单个节点（供 TestPipeline 调用）"""
+        if timeout is not None:
+            old_timeout = self._config.tester.timeout
+            self._config.tester.timeout = int(timeout)
+
+        try:
+            if node.protocol in ADVANCED_PROTOCOLS and self._config.tester.prefer_mihomo:
+                manager = MihomoManager()
+                if manager.is_available:
+                    results = mihomo_test_nodes([node])
+                    if results:
+                        return results[0]
+                if self._config.tester.tcp_fallback:
+                    return basic_test_node(node)
+                return TestResult(
+                    node_id=node.id,
+                    node_key=node.node_key,
+                    alive=False,
+                    error="Mihomo 不可用",
+                    test_mode="mihomo_missing",
+                )
+            return basic_test_node(node)
+        finally:
+            if timeout is not None:
+                self._config.tester.timeout = old_timeout
+
     def _test_nodes(
         self,
         nodes: list[Node],
@@ -100,7 +127,9 @@ class TestService:
                 # 先检查 Mihomo 是否可用，避免先写失败再 fallback 导致重复计数
                 manager = MihomoManager()
                 if manager.is_available:
-                    mihomo_results = mihomo_test_nodes(advanced_nodes, on_progress)
+                    mihomo_results = mihomo_test_nodes(
+                        advanced_nodes, on_progress, db=self._db
+                    )
                     all_results.extend(mihomo_results)
                     tested_count += len(advanced_nodes)
                 else:

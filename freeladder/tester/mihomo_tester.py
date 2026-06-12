@@ -39,6 +39,7 @@ def _nodes_to_proxies(nodes: list[Node]) -> list[dict]:
 def mihomo_test_nodes(
     nodes: list[Node],
     on_progress: Optional[Callable[[int, int, str], None]] = None,
+    db=None,
 ) -> list[TestResult]:
     """使用 Mihomo 测试高级协议节点
 
@@ -97,6 +98,13 @@ def mihomo_test_nodes(
 
         batch_results = _test_batch(manager, batch, config, on_progress, batch_start, total)
         all_results.extend(batch_results)
+
+        if db is not None:
+            for result in batch_results:
+                try:
+                    db.update_test_result(result)
+                except Exception as e:
+                    logger.debug(f"保存 Mihomo 批次结果失败 {result.node_key}: {e}")
 
     logger.info(f"Mihomo 测试完成: {len(all_results)} 个结果")
     return all_results
