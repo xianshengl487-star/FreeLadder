@@ -415,6 +415,14 @@ class Database:
 
         return f"({' OR '.join(parts)})", params
 
+    @staticmethod
+    def _nodes_order_clause() -> str:
+        """列表默认排序：可用节点优先，再按分数与延迟"""
+        return (
+            "ORDER BY alive DESC, score DESC, "
+            "CASE WHEN latency IS NULL THEN 1 ELSE 0 END, latency ASC, id DESC"
+        )
+
     def get_nodes_page(
         self,
         offset: int = 0,
@@ -444,7 +452,7 @@ class Database:
             params.append(min_score)
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        sql = f"SELECT * FROM nodes {where} ORDER BY score DESC, id DESC LIMIT ? OFFSET ?"
+        sql = f"SELECT * FROM nodes {where} {self._nodes_order_clause()} LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
         rows = self._conn.execute(sql, params).fetchall()
@@ -536,16 +544,18 @@ class Database:
         return self._node_from_row(row) if row else None
 
     def get_all_nodes(self) -> list[Node]:
-        """获取全部节点"""
+        """获取全部节点（可用节点排在前面）"""
         rows = self._conn.execute(
-            "SELECT * FROM nodes ORDER BY score DESC, id DESC"
+            f"SELECT * FROM nodes {self._nodes_order_clause()}"
         ).fetchall()
         return [self._node_from_row(r) for r in rows]
 
     def get_alive_nodes(self) -> list[Node]:
         """获取可用节点"""
         rows = self._conn.execute(
-            "SELECT * FROM nodes WHERE alive = 1 ORDER BY score DESC"
+            "SELECT * FROM nodes WHERE alive = 1 "
+            "ORDER BY score DESC, "
+            "CASE WHEN latency IS NULL THEN 1 ELSE 0 END, latency ASC"
         ).fetchall()
         return [self._node_from_row(r) for r in rows]
 

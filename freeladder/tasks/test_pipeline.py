@@ -63,7 +63,9 @@ def run_test_pipeline(
         elif mode == "alive":
             nodes = db.get_nodes_page(offset=0, limit=perf.max_total_nodes_per_task, alive_only=True)
         else:  # all
-            nodes = db.get_nodes_page(offset=0, limit=perf.max_total_nodes_per_task)
+            nodes = db.get_all_nodes()
+            if len(nodes) > perf.max_total_nodes_per_task:
+                nodes = nodes[: perf.max_total_nodes_per_task]
     except Exception as e:
         logger.error(f"获取待测试节点失败: {e}")
         return stats
